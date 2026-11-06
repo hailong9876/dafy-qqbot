@@ -1,0 +1,17 @@
+{
+  "name": "dafy-mcp-server",
+  "version": "1.0.0",
+  "description": "大肥鱼 MCP Server — 将大屏文件服务封装为标准 MCP 工具，供 Claude Desktop / Cursor / Windsurf 等 MCP 客户端调用",
+  "type": "module",
+  "main": "server.js",
+  "bin": {
+    "dafy-mcp": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-client.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}

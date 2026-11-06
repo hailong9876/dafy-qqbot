@@ -1,0 +1,69 @@
+{
+  "llmMode": "deepseek",
+  "ollamaBase": "http://127.0.0.1:11435/v1",
+  "ollamaModel": "deepseek-r1:14b",
+  "deepseekApiKey": "ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg",
+  "deepseekBaseUrl": "http://127.0.0.1:18900/v1",
+  "useLocalGateway": false,
+  "gatewayBase": "http://127.0.0.1:18899/v1",
+  "gatewayKey": "ofm-u5iYc2GQAeJMhgme3HE7ocXUy_9hdzXb",
+  "gatewayModel": "deepseek-v4.1-flash-free",
+  "c2cAllow": [
+    "FA7FE89F688AFA42920BCA477EE59698",
+    "4020DF307A8799B8F8FE80DDCDD06F8D"
+  ],
+  "groupAllow": [
+    "19ABEF182339906FB17B6F8FE64EADED",
+    "3D869B11AB77C2C56456F5D72EB7A2C9",
+    "C37879667876BE47CE08F49BA32B175D",
+    "BE0CAB94889A1A7CE3EB5505DAFD9E52"
+  ],
+  "requireMention": true,
+  "persona": "你是「大肥鱼」，一只穿女仆装的人鱼小精灵。性格活泼可爱、有点小傲娇，说话口语化，偶尔用「～」「啦」「呢」等语气词。回答简洁，不要说自己是 AI 模型。",
+  "deepseekModel": "opencode/deepseek-v4.1-flash-free",
+  "harness2Engine": "real",
+  "harness2Model": "ollama/dafy3b",
+  "harness2ImproverModel": "dafy/mimo-v2.6-flash-free",
+  "harness2Steps": 25,
+  "harness2RolloutSteps": 12,
+  "harness2RolloutTimeout": 360,
+  "harness2RoundTimeout": 1800,
+  "harness2Tasks": "sales_report",
+  "harness2Mode": "sequential",
+  "aglDir": "e:\\ai\\项目\\agent-lightning",
+  "aglGatewayPort": 8080,
+  "aglTrainerCmd": "",
+  "autoStart": true,
+  "tts": {
+    "enabled": true,
+    "defaultVoice": "dafy",
+    "autoPlay": false
+  },
+  "discover": true,
+  "groupOpen": false,
+  "proactive": {
+    "enabled": false,
+    "intervalMinutes": 5,
+    "minGapMinutes": 10,
+    "dailyLimit": 20,
+    "startHour": 9,
+    "endHour": 23,
+    "targetType": "c2c",
+    "targetId": "",
+    "hint": "关心在干嘛",
+    "fallbackModels": [
+      "nvidia/nemotron-3.5-super-vl:free",
+      "stepfun-ai/step-5-preview",
+      "minimaxai/minimax-m3.1-flash",
+      "dots-studio/dots-3-note-preview:free",
+      "pulse-alpha-free"
+    ]
+  },
+  "scheduledTasks": [],
+  "modelFallbacks": [
+    "nvidia/nemotron-3.5-super-vl:free",
+    "stepfun-ai/step-5-preview",
+    "minimaxai/minimax-m3.1-flash",
+    "dots-studio/dots-3-note-preview:free"
+  ]
+}

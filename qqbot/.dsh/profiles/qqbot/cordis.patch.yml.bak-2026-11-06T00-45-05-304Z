@@ -1,0 +1,8 @@
+- id: im-qqbot
+  config:
+    appId: "1906268899"
+    appSecret: 9fCjHpO4lSAsbK4paM8viWK9yofWOG92
+    access:
+      c2cMode: allowlist
+      c2cAllow:
+        - F8265B2999813E1285EFA63CA3F496B3

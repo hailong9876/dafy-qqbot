@@ -1,0 +1,188 @@
+{
+  "version": 7,
+  "record": {
+    "identity": {
+      "formatVersion": 4,
+      "createdAt": 1793421187664,
+      "cwd": "C:\\Users\\Administrator\\.dsh-qqbot\\workspace",
+      "isSeeded": false,
+      "inheritedEventCount": 0
+    },
+    "rows": {
+      "title": {
+        "ver": 1,
+        "seq": 294,
+        "val": "海龙叫主人"
+      },
+      "titleInput": {
+        "ver": 3,
+        "seq": 294,
+        "val": {
+          "first": {
+            "seq": 8,
+            "text": "[海龙 (4020DF307A8799B8F8FE80DDCDD06F8D)] 叫主人 (@you)"
+          },
+          "count": 29,
+          "lastSeq": 289
+        }
+      },
+      "llmRetry": {
+        "ver": 1,
+        "seq": 294,
+        "val": {}
+      },
+      "sandboxMode": {
+        "ver": 1,
+        "seq": 294,
+        "val": "workspace-write"
+      },
+      "goal": {
+        "ver": 6,
+        "seq": 294,
+        "val": {
+          "current": null,
+          "seenGoalIds": [],
+          "failure": null
+        }
+      },
+      "tokenUsage": {
+        "ver": 2,
+        "seq": 294,
+        "val": {
+          "totals": {
+            "uncachedInputTokens": 175250,
+            "outputTokens": 5328,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "last": {
+            "turn": 29,
+            "step": 1,
+            "buckets": {
+              "uncachedInputTokens": 14783,
+              "outputTokens": 55,
+              "cacheReadTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          }
+        }
+      },
+      "contextPressure": {
+        "ver": 5,
+        "seq": 294,
+        "val": {
+          "surfaceTokens": 6310,
+          "contextWindow": 1000000,
+          "pressureTokens": 14783,
+          "sampledSurfaceTokens": 6284
+        }
+      },
+      "contextBreakdown": {
+        "ver": 6,
+        "seq": 294,
+        "val": {
+          "systems": [
+            {
+              "seq": 275,
+              "tokens": 1020
+            }
+          ],
+          "surfaceTokens": 6632,
+          "breakdown": {
+            "systemTokens": 1020,
+            "toolsTokens": 6929,
+            "messageTokens": 5612
+          }
+        }
+      },
+      "todos": {
+        "ver": 2,
+        "seq": 294,
+        "val": null
+      },
+      "turnBoundary": {
+        "ver": 2,
+        "seq": 294,
+        "val": {
+          "openTurnStartSeq": null,
+          "lastStepStartSeq": 288,
+          "lastStepBoundary": {
+            "kind": "end",
+            "seq": 293
+          },
+          "lastTurn": 29
+        }
+      },
+      "inbox": {
+        "ver": 1,
+        "seq": 294,
+        "val": {
+          "next-turn": [],
+          "next-step": []
+        }
+      },
+      "userQuestions": {
+        "ver": 2,
+        "seq": 294,
+        "val": {
+          "inheritedEventCount": 0,
+          "timed": false,
+          "questions": {
+            "active": [],
+            "settled": []
+          }
+        }
+      },
+      "plan": {
+        "ver": 3,
+        "seq": 294,
+        "val": {
+          "active": false,
+          "wanted": null,
+          "running": null,
+          "activeAtLastHeader": false
+        }
+      },
+      "permissions": {
+        "ver": 2,
+        "seq": 294,
+        "val": {
+          "preset": "workspace-write",
+          "sandbox": "workspace-write",
+          "approval": "ask",
+          "seeded": true
+        }
+      },
+      "workingDirectory": {
+        "ver": 1,
+        "seq": 294,
+        "val": "C:\\Users\\Administrator\\.dsh-qqbot\\workspace"
+      },
+      "subagentCatalog": {
+        "ver": 6,
+        "seq": 294,
+        "val": {
+          "inheritedEventCount": 0
+        }
+      },
+      "subagentTiming": {
+        "ver": 3,
+        "seq": 294,
+        "val": {
+          "descriptorSeen": false,
+          "settledMs": 0
+        }
+      },
+      "subagent": {
+        "ver": 2,
+        "seq": 294,
+        "val": {}
+      },
+      "subagentModelSelectionPolicy": {
+        "ver": 1,
+        "seq": 294,
+        "val": null
+      }
+    }
+  }
+}

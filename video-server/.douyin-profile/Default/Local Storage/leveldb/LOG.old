@@ -1,0 +1,9 @@
+2026/11/03-22:30:02.113 3fc0 Reusing MANIFEST E:\ai\项目\大肥鱼\video-server\.douyin-profile\Default\Local Storage\leveldb/MANIFEST-000001
+2026/11/03-22:30:02.120 3fc0 Recovering log #53
+2026/11/03-22:30:02.176 3fc0 Reusing old log E:\ai\项目\大肥鱼\video-server\.douyin-profile\Default\Local Storage\leveldb/000053.log 
+2026/11/03-22:30:58.743 3fc0 Level-0 table #58: started
+2026/11/03-22:31:02.693 3fc0 Level-0 table #58: 30197 bytes OK
+2026/11/03-22:31:02.705 3fc0 Delete type=0 #53
+2026/11/03-22:36:22.997 3fc0 Level-0 table #60: started
+2026/11/03-22:36:23.070 3fc0 Level-0 table #60: 22809 bytes OK
+2026/11/03-22:36:23.082 3fc0 Delete type=0 #57

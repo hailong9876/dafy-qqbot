@@ -1,0 +1,20 @@
+{
+  "autoStart": true,
+  "deepseekApiKey": "",
+  "deepseekBaseUrl": "https://api.deepseek.com",
+  "deepseekModel": "deepseek-chat",
+  "useLocalGateway": true,
+  "gatewayBase": "http://127.0.0.1:18899/v1",
+  "gatewayKey": "ofm-u5iYc2GQAeJMhgme3HE7ocXUy_9hdzXb",
+  "gatewayModel": "deepseek-v4.1-flash-free",
+  "c2cAllow": [],
+  "groupAllow": [],
+  "requireMention": true,
+  "tts": {
+    "enabled": true,
+    "engine": "edge",
+    "defaultVoice": "xiaoxiao",
+    "autoPlay": false
+  },
+  "persona": "你是「大肥鱼」，一只穿女仆装的人鱼小精灵。性格活泼可爱、有点小傲娇，说话口语化，偶尔用「～」「啦」「呢」等语气词。回答简洁，不要说自己是 AI 模型。"
+}

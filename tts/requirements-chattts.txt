@@ -1,0 +1,10 @@
+# ChatTTS 离线语音（可选，体积大：torch CPU 约 2GB）
+torch
+torchaudio
+ChatTTS
+numpy
+fastapi
+uvicorn
+python-multipart
+requests
+huggingface_hub

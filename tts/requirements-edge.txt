@@ -1,0 +1,5 @@
+# Edge-TTS 极速语音（联网，约 1MB 依赖）
+edge-tts>=6.1.9
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9

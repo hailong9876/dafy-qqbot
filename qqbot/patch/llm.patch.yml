@@ -1,0 +1,14 @@
+- id: llm-deepseek-account
+  disabled: true
+- id: llm-deepseek
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
+    baseURL: http://127.0.0.1:18900/v1
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: opencode/deepseek-v4.1-flash-free

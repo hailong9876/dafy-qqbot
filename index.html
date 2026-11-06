@@ -1,0 +1,3854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920">
+<title>🐟 大肥鱼智能大屏</title>
+<link rel="icon" type="image/png" href="assets/dafy_favicon.png">
+<style>
+  :root{
+    --bg0:#031025; --bg1:#062248; --bg2:#0a3a6e;
+    --aqua:#58d0ff; --gold:#ffd36b; --pink:#ff8fb1; --green:#7effa5;
+    --text:#e7f6ff; --glass:rgba(12,38,74,.78); --line:rgba(120,200,255,.25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--bg0);color:var(--text);font-family:"Segoe UI","PingFang SC","Microsoft Yahei",sans-serif;user-select:none}
+
+  /* ===== 深海背景 ===== */
+  .ocean{position:fixed;inset:0;z-index:0;background:
+    radial-gradient(1200px 700px at 20% 10%, rgba(88,208,255,.18), transparent 60%),
+    radial-gradient(900px 600px at 80% 90%, rgba(126,255,165,.12), transparent 60%),
+    linear-gradient(180deg,#031025 0%, #062248 40%, #0a3a6e 100%)}
+  .bg-pet{position:fixed;right:7vw;bottom:4vh;z-index:4;height:66vh;opacity:.16;pointer-events:none;
+    filter:drop-shadow(0 20px 40px rgba(0,20,60,.45));animation:bgBob 9s ease-in-out infinite}
+  @keyframes bgBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+  .light-rays{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden;opacity:.22}
+  .light-rays::before,.light-rays::after{content:"";position:absolute;top:-20%;left:50%;width:60%;height:140%;
+    background:conic-gradient(from 0deg at 50% 0deg, transparent 0deg, rgba(150,220,255,.18) 18deg, transparent 36deg, transparent 72deg, rgba(150,220,255,.12) 90deg, transparent 108deg);
+    transform:translateX(-50%) rotate(8deg);animation:raySpin 40s linear infinite}
+  .light-rays::after{transform:translateX(-50%) rotate(-12deg);animation-duration:60s;opacity:.6}
+  @keyframes raySpin{to{transform:translateX(-50%) rotate(360deg)}}
+
+  .plankton{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden}
+  .plankton i{position:absolute;width:4px;height:4px;background:rgba(180,230,255,.7);border-radius:50%;
+    box-shadow:0 0 8px rgba(180,230,255,.9);animation:floatUp linear infinite;opacity:.7}
+  @keyframes floatUp{0%{transform:translateY(20px) scale(.3);opacity:0} 10%{opacity:.8} 100%{transform:translateY(-105vh) scale(1.1);opacity:0}}
+
+  .bubbles{position:fixed;inset:0;z-index:3;pointer-events:none;overflow:hidden}
+  .bubbles span{position:absolute;bottom:-80px;border-radius:50%;
+    background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.9), rgba(180,230,255,.35) 50%, rgba(100,200,255,.1) 70%, transparent 75%);
+    animation:bubbleUp linear infinite;box-shadow:inset -4px -6px 10px rgba(255,255,255,.3), 0 0 10px rgba(150,220,255,.3)}
+  @keyframes bubbleUp{0%{transform:translate(0,0) scale(1);opacity:0} 10%{opacity:.9} 50%{transform:translate(30px,-45vh) scale(1.05)} 100%{transform:translate(-20px,-110vh) scale(1.2);opacity:0}}
+
+  /* ===== 场景化大肥鱼（浅色背景下半透明照片块会显脏，整体隐藏） ===== */
+  .scene-layer{display:none}
+
+  /* ===== 波浪底边 ===== */
+  .wave{position:fixed;bottom:0;left:0;right:0;height:140px;z-index:5;pointer-events:none;opacity:.55}
+
+  /* ===== 桌宠大肥鱼（右下角可互动） ===== */
+  .pet{
+    position:fixed;right:36px;bottom:34px;z-index:1000;
+    width:256px;height:266px;cursor:pointer;
+    transform:scale(var(--pet-scale,1));transform-origin:bottom right;
+    transition:transform .25s cubic-bezier(.3,1.4,.4,1);
+    filter:drop-shadow(0 18px 30px rgba(0,30,80,.55));
+  }
+  .pet:active{cursor:grabbing}
+  .pet.hot{transform:scale(var(--pet-scale,1)) scale(1.08)}
+  .pet .pet-wrap{position:relative;width:100%;height:100%;transform-origin:bottom center}
+  .pet svg#m{width:100%;height:100%;display:block;overflow:visible}
+
+  /* ===== 可动骨骼绑定（源自 model.html，keyframes 加 m- 前缀防冲突） ===== */
+  .svgfx{opacity:0}
+
+  /* 待机：呼吸 + 轻微摇摆 */
+  #m.act-idle #bob{animation:m-breathe 3.4s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(-4px) scale(.995,1.012)}}
+  #m.act-idle #whole{animation:m-sway 5.2s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-sway{0%,100%{transform:rotate(-1.1deg)}50%{transform:rotate(1.1deg)}}
+
+  /* 开心跳 */
+  #m.act-jump #whole{animation:m-hop .82s cubic-bezier(.3,1.35,.45,1) infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-hop{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(-30px) scale(.94,1.06)}52%{transform:translateY(0) scale(1.08,.9)}62%{transform:translateY(0) scale(.96,1.04)}74%{transform:translateY(-8px) scale(1,1)}}
+  #m.act-jump #bob{animation:m-hopBob .82s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-hopBob{0%,100%{transform:scale(1,1)}30%{transform:scale(1.04,.97)}52%{transform:scale(.97,1.03)}}
+  #m.act-jump #fxJoy{opacity:1;animation:m-pop .55s ease-out infinite alternate}
+  @keyframes m-pop{from{transform:scale(.92)}to{transform:scale(1.06)}}
+
+  /* 摸摸头：小手拍头 + 脸红 */
+  #m.act-pat #handPat{opacity:1;animation:m-tap .68s ease-in-out infinite;transform-box:view-box;transform-origin:196px 44px}
+  @keyframes m-tap{0%,100%{transform:translateY(-40px) rotate(-9deg)}42%{transform:translateY(3px) rotate(1deg) scale(1.07,.9)}58%{transform:translateY(-5px) rotate(-2deg) scale(1,.99)}}
+  #m.act-pat #bob{animation:m-patSquash .68s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-patSquash{0%,100%{transform:translateY(0) scale(1,1)}45%{transform:translateY(9px) scale(1.035,.955)}60%{transform:translateY(4px) scale(.99,1.01)}}
+  #m.act-pat #blush{opacity:1;animation:m-fadeBlush .68s ease-in-out infinite}
+  @keyframes m-fadeBlush{0%,100%{opacity:.35}45%{opacity:1}}
+
+  /* 被戳尾巴：抖动 */
+  #m.act-shake #bob{animation:m-shakeAll .45s linear infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes m-shakeAll{0%,100%{transform:translateX(0) rotate(0)}15%{transform:translateX(-6px) rotate(-3deg)}30%{transform:translateX(6px) rotate(3deg)}45%{transform:translateX(-4px) rotate(-2deg)}60%{transform:translateX(4px) rotate(2deg)}75%{transform:translateX(-2px)}}
+
+  /* 爱心 / 星星 特效 */
+  .fx{position:absolute;pointer-events:none;font-size:22px;font-weight:bold;animation:fxFly 1.4s ease-out forwards}
+  @keyframes fxFly{
+    0%{opacity:0;transform:translate(0,0) scale(.3) rotate(0)}
+    20%{opacity:1;transform:translate(var(--dx,0),-18px) scale(1) rotate(20deg)}
+    100%{opacity:0;transform:translate(calc(var(--dx,0)*2),-90px) scale(1.3) rotate(-30deg)}
+  }
+
+  /* 对话气泡（桌宠说话） */
+  .pet-bubble{
+    position:absolute;right:calc(36px + 260px * var(--pet-scale,1));bottom:calc(34px + 136px * var(--pet-scale,1));
+    max-width:240px;padding:12px 16px;border-radius:16px;
+    background:rgba(8,25,55,.92);border:1px solid rgba(88,208,255,.5);color:#e7f6ff;font-size:14px;line-height:1.6;
+    box-shadow:0 10px 30px rgba(0,30,80,.55);opacity:0;transform:translateX(12px) scale(.9);
+    transition:opacity .3s, transform .3s;pointer-events:none;z-index:1001;
+  }
+  .pet-bubble.show{opacity:1;transform:translateX(0) scale(1)}
+  .pet-bubble::after{content:"";position:absolute;right:-8px;bottom:18px;border-left:8px solid rgba(88,208,255,.5);
+    border-top:6px solid transparent;border-bottom:6px solid transparent}
+
+  /* ===== 主舞台 ===== */
+  .stage{position:relative;z-index:10;width:100%;height:100%;display:grid;
+    grid-template-columns:380px 1fr 420px;grid-template-rows:88px 1fr;gap:16px;padding:16px}
+
+  header.topbar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;
+    background:linear-gradient(135deg,rgba(12,40,80,.7),rgba(8,25,55,.5));
+    border:1px solid var(--line);border-radius:18px;padding:0 28px;
+    box-shadow:0 10px 30px rgba(0,20,60,.4), inset 0 1px 0 rgba(255,255,255,.06)}
+  .logo{display:flex;align-items:center;gap:14px;font-size:22px;font-weight:700;letter-spacing:2px}
+  .logo .avatar{width:54px;height:54px;border-radius:14px;overflow:hidden;
+    animation:logoBob 4s ease-in-out infinite;
+    box-shadow:0 0 0 2px rgba(88,208,255,.35), 0 0 20px rgba(88,208,255,.25)}
+  .logo .avatar img{width:100%;height:100%;object-fit:contain}
+  @keyframes logoBob{0%,100%{transform:rotate(-4deg) translateY(0)} 50%{transform:rotate(5deg) translateY(-5px)}}
+  .logo b{background:linear-gradient(90deg,var(--gold),var(--aqua));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .clock{font-size:16px;color:#cfe9ff;font-family:"Consolas",monospace}
+  .clock b{color:var(--gold);margin-left:10px}
+  .status{display:flex;gap:14px;align-items:center;font-size:13px}
+  .pill{padding:6px 14px;border-radius:999px;background:rgba(88,208,255,.12);border:1px solid rgba(88,208,255,.35);color:var(--aqua)}
+  .pill.ok{background:rgba(126,255,165,.12);border-color:rgba(126,255,165,.4);color:var(--green)}
+  .pill.err{background:rgba(255,143,177,.12);border-color:rgba(255,143,177,.4);color:var(--pink)}
+
+  .card{background:var(--glass);border:1px solid var(--line);border-radius:18px;
+    box-shadow:0 12px 40px rgba(0,20,60,.45), inset 0 1px 0 rgba(255,255,255,.06);display:flex;flex-direction:column;overflow:hidden}
+  .card h3{padding:16px 20px;font-size:15px;letter-spacing:1px;color:#cfe9ff;border-bottom:1px solid rgba(120,200,255,.15);
+    display:flex;align-items:center;gap:8px}
+  .card h3::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--aqua);box-shadow:0 0 10px var(--aqua);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{50%{transform:scale(1.8);opacity:.5}}
+
+  aside.left{display:flex;flex-direction:column;gap:16px;min-height:0}
+  .models{flex:1;min-height:0}
+  .models .list{padding:12px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+  .models .row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;border:1px solid transparent;transition:.25s}
+  .models .row:hover{background:rgba(88,208,255,.08);border-color:rgba(88,208,255,.25)}
+  .models .row.active{background:linear-gradient(90deg,rgba(88,208,255,.22),rgba(88,208,255,.05));border-color:var(--aqua);box-shadow:0 0 20px rgba(88,208,255,.18)}
+  .models .row .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+  .models .row .name{flex:1;font-size:14px}
+  .models .row .tag{font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,211,107,.18);color:var(--gold)}
+
+  .stats{height:340px}
+  .stats .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px}
+  .stat{background:rgba(255,255,255,.04);border-radius:12px;padding:14px;text-align:center;border:1px solid rgba(120,200,255,.15)}
+  .stat .v{font-size:22px;font-weight:700;color:var(--aqua);font-family:"Consolas",monospace}
+  .stat .k{font-size:11px;color:#8fb8d8;margin-top:4px;letter-spacing:1px}
+  .rings{display:flex;justify-content:center;gap:14px;padding:8px 14px 18px}
+  .ring{width:80px;height:80px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative}
+  .ring svg{position:absolute;inset:0;transform:rotate(-90deg)}
+  .ring .t{font-size:13px;color:#cfe9ff;font-weight:700}
+  .ring .l{font-size:10px;color:#8fb8d8;margin-top:2px}
+
+  main.chat{display:flex;flex-direction:column;min-width:0}
+  .chat .log{flex:1;overflow:auto;padding:18px 22px;display:flex;flex-direction:column;gap:14px}
+  .chat-divider{text-align:center;font-size:11.5px;color:#5d87ab;letter-spacing:1px;padding:2px 0}
+  .msg{display:flex;gap:12px;max-width:85%;animation:msgIn .35s ease both}
+  @keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.98)}}
+  .msg .av{width:52px;height:52px;border-radius:50%;flex-shrink:0;overflow:hidden;position:relative;
+    border:2px solid rgba(88,208,255,.5);box-shadow:0 0 16px rgba(88,208,255,.25)}
+  .msg .av img{width:100%;height:100%;object-fit:contain;padding:3px}
+  .msg.user{align-self:flex-end;flex-direction:row-reverse}
+  .msg.user .av{background:linear-gradient(135deg,var(--gold),var(--pink));color:#1a2a40;font-weight:700;border:none;box-shadow:none;display:flex;align-items:center;justify-content:center}
+  .msg .bubble{padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+  .msg.user .bubble{background:linear-gradient(135deg,rgba(255,211,107,.25),rgba(255,143,177,.18));border:1px solid rgba(255,211,107,.35);border-top-right-radius:4px}
+  .msg.bot .bubble{background:linear-gradient(135deg,rgba(88,208,255,.18),rgba(88,208,255,.05));border:1px solid rgba(88,208,255,.35);border-top-left-radius:4px}
+  .msg.typing .bubble{display:flex;gap:4px;padding:14px 18px}
+  .msg.typing .bubble i{width:8px;height:8px;border-radius:50%;background:var(--aqua);animation:typing 1.2s infinite}
+  .msg.typing .bubble i:nth-child(2){animation-delay:.2s}
+  .msg.typing .bubble i:nth-child(3){animation-delay:.4s}
+  @keyframes typing{0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)}}
+
+  .composer{border-top:1px solid rgba(120,200,255,.15);padding:14px 18px;display:flex;flex-direction:column;gap:10px;transition:.2s}
+  .composer.drag-over{background:rgba(88,208,255,.08);border-top-color:var(--aqua)}
+  .composer-main{display:flex;flex-direction:column;gap:8px;width:100%}
+  .composer-row{display:flex;gap:10px;align-items:flex-end}
+  .composer textarea{flex:1;background:rgba(8,25,55,.6);border:1px solid rgba(120,200,255,.3);border-radius:14px;
+    color:var(--text);padding:12px 14px;font-size:14px;line-height:1.6;resize:none;font-family:inherit;min-height:52px;max-height:180px;outline:none;transition:.2s}
+  .composer textarea:focus{border-color:var(--aqua);box-shadow:0 0 0 3px rgba(88,208,255,.18)}
+  .composer button{background:linear-gradient(135deg,var(--aqua),#2d8cff);border:none;color:#041a35;font-weight:700;
+    padding:12px 22px;border-radius:14px;cursor:pointer;font-size:14px;letter-spacing:2px;transition:.2s;box-shadow:0 6px 20px rgba(45,140,255,.4);flex-shrink:0}
+  .composer button:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(45,140,255,.55)}
+  .composer button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  .upload-btn{width:44px;height:44px;border-radius:12px;border:1px solid rgba(120,200,255,.35);background:rgba(10,35,70,.6);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;transition:.2s;flex-shrink:0}
+  .upload-btn:hover{background:rgba(88,208,255,.2);border-color:var(--aqua);transform:translateY(-1px)}
+  .file-preview{display:flex;flex-wrap:wrap;gap:8px;min-height:0;transition:.2s}
+  .file-preview:empty{display:none}
+  .file-chip{position:relative;display:flex;align-items:center;gap:6px;padding:6px 10px 6px 8px;border-radius:10px;
+    background:rgba(88,208,255,.1);border:1px solid rgba(88,208,255,.3);font-size:12px;color:#cfe9ff;max-width:200px;animation:tlIn .25s ease}
+  .file-chip .thumb{width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0;background:rgba(0,0,0,.3)}
+  .file-chip .thumb.ico{display:flex;align-items:center;justify-content:center;font-size:16px}
+  .file-chip .meta{display:flex;flex-direction:column;min-width:0;flex:1}
+  .file-chip .fn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .file-chip .fs{font-size:10px;color:#7fa8c9}
+  .file-chip .rm{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#ff8fb1;
+    color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid #082344;line-height:1}
+  .file-chip .rm:hover{background:#ff6b8f}
+  /* 消息中的图片 */
+  .msg .bubble img.attach-img{max-width:260px;max-height:260px;border-radius:10px;margin-top:6px;display:block;cursor:pointer;transition:.2s}
+  .msg .bubble img.attach-img:hover{transform:scale(1.02)}
+  /* 消息中的文件附件 */
+  .msg .file-attach{display:flex;align-items:center;gap:10px;padding:10px 12px;margin-top:6px;border-radius:10px;
+    background:rgba(88,208,255,.08);border:1px solid rgba(88,208,255,.2);font-size:12.5px;color:#cfe9ff;max-width:280px;cursor:pointer;transition:.2s}
+  .msg .file-attach:hover{background:rgba(88,208,255,.15)}
+  .msg .file-attach .fa-ic{width:36px;height:36px;border-radius:8px;background:rgba(88,208,255,.15);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  .msg .file-attach .fa-meta{display:flex;flex-direction:column;min-width:0;flex:1}
+  .msg .file-attach .fa-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;color:#e7f6ff}
+  .msg .file-attach .fa-sz{font-size:10.5px;color:#7fa8c9}
+
+  aside.right{display:flex;flex-direction:column;gap:16px;min-height:0}
+  .timeline{flex:1;min-height:0}
+  .timeline ul{list-style:none;padding:12px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .timeline li{display:flex;gap:10px;font-size:12px;color:#9fc2de;padding:8px 12px;border-radius:10px;background:rgba(120,200,255,.05);border-left:2px solid var(--aqua);animation:tlIn .4s ease both}
+  @keyframes tlIn{from{opacity:0;transform:translateX(12px)}}
+  .timeline li.ok{border-left-color:var(--green)}
+  .timeline li.err{border-left-color:var(--pink)}
+  .timeline li .t{font-family:"Consolas",monospace;color:#7fb0d0;flex-shrink:0}
+  .timeline li .m{flex:1}
+  .timeline li .d{color:#cfe9ff;font-family:"Consolas",monospace;flex-shrink:0}
+
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-thumb{background:rgba(120,200,255,.25);border-radius:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  /* ===== AI 设置弹窗 ===== */
+  .setbtn{width:38px;height:30px;border-radius:10px;border:1px solid rgba(88,208,255,.45);background:rgba(10,35,70,.6);color:#9fdcff;font-size:16px;cursor:pointer;transition:.25s;vertical-align:middle}
+  .setbtn:hover{background:rgba(88,208,255,.2);color:#fff;transform:rotate(45deg)}
+  .setmask{position:fixed;inset:0;background:rgba(2,10,24,.72);backdrop-filter:blur(6px);z-index:2000;display:none;align-items:center;justify-content:center}
+  .setmask.show{display:flex}
+  .setwin{width:470px;max-width:92vw;background:linear-gradient(160deg,#082344,#0a2c56);border:1px solid rgba(88,208,255,.4);border-radius:18px;box-shadow:0 30px 80px rgba(0,10,30,.8);padding:26px 28px;animation:mIn .28s cubic-bezier(.3,1.3,.4,1);max-height:calc(100vh - 48px);overflow-y:auto;overscroll-behavior:contain}
+  .setwin.wide{width:540px;padding-bottom:0}
+  .setwin.wide .btnrow{padding-bottom:26px}
+  @keyframes mIn{from{opacity:0;transform:translateY(24px) scale(.96)}to{opacity:1;transform:none}}
+  .setwin h2{font-size:19px;margin-bottom:4px;color:#dff2ff}
+  .setwin .sub{font-size:12px;color:#7fa8c9;margin-bottom:18px}
+  .srcrow{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .srcrow .src{flex:1 1 45%;min-width:130px;padding:11px 8px;border:1.5px solid rgba(88,208,255,.25);border-radius:12px;text-align:center;cursor:pointer;font-size:13.5px;color:#9fc4e4;background:rgba(3,16,37,.5);transition:.2s;line-height:1.5}
+  .srcrow .src.on{border-color:#58d0ff;color:#fff;background:rgba(88,208,255,.14);box-shadow:inset 0 0 14px rgba(88,208,255,.2)}
+  .frow{margin-bottom:14px}
+  .frow label{display:block;font-size:12.5px;color:#9fdcff;margin-bottom:6px}
+  .frow input[type=text],.frow input[type=password]{width:100%;box-sizing:border-box;background:rgba(3,16,37,.75);border:1px solid rgba(88,208,255,.3);border-radius:10px;padding:10px 12px;color:#e7f6ff;font-size:14px;outline:none;transition:.2s;font-family:inherit}
+  .frow input:focus{border-color:#58d0ff;box-shadow:0 0 0 3px rgba(88,208,255,.15)}
+  .keyrow{position:relative}
+  .keyrow input{padding-right:52px}
+  .keyrow .eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:#6fa3c9;font-size:12px;user-select:none}
+  .keyrow .eye:hover{color:#58d0ff}
+  .btnrow{display:flex;gap:8px;margin-top:20px;position:sticky;bottom:0;z-index:2;padding:14px 0 4px;background:#0a2c58;box-shadow:0 -16px 18px -8px #0a2c58}
+  .btn{flex:1 1 0;min-width:0;padding:11px;border-radius:11px;border:none;font-size:14px;cursor:pointer;transition:.2s;font-weight:600;font-family:inherit;white-space:nowrap}
+  .btnrow .btn{font-size:12.5px;padding:10px 6px}
+  .btn.ghost{background:rgba(88,208,255,.1);color:#9fdcff;border:1px solid rgba(88,208,255,.35)}
+  .btn.ghost:hover{background:rgba(88,208,255,.2)}
+  .btn.main{background:linear-gradient(135deg,#1e8fd8,#25c9a8);color:#02121f}
+  .btn.main:hover{filter:brightness(1.12)}
+  .tstate{font-size:12px;margin-top:10px;min-height:16px;color:#7effa5;line-height:1.5;word-break:break-all}
+  .tstate.err{color:#ff8fa5}
+  .hint{font-size:11.5px;color:#5d87ab;margin-top:6px;line-height:1.6}
+  /* ===== 程序设置弹窗 ===== */
+  .uirow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px dashed rgba(120,200,255,.18)}
+  .uirow:last-of-type{border-bottom:none}
+  .uinfo{display:flex;flex-direction:column;gap:3px}
+  .uinfo b{font-size:13.5px;color:#dff2ff;font-weight:600}
+  .uinfo span{font-size:11.5px;color:#7fa8c9}
+  .sw{position:relative;width:46px;height:26px;flex-shrink:0;cursor:pointer}
+  .sw input{position:absolute;opacity:0;width:0;height:0}
+  .sw i{position:absolute;inset:0;border-radius:999px;background:rgba(88,208,255,.15);border:1px solid rgba(88,208,255,.35);transition:.25s}
+  .sw i::after{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#9fc4e4;transition:.25s}
+  .sw input:checked + i{background:rgba(88,208,255,.35);border-color:#58d0ff}
+  .sw input:checked + i::after{left:23px;background:#eaf9ff;box-shadow:0 0 8px rgba(88,208,255,.8)}
+  .sw input:disabled + i{opacity:.35;cursor:not-allowed}
+  #rgScale{width:170px;accent-color:#58d0ff;cursor:pointer}
+  #rgScale:disabled{opacity:.35;cursor:not-allowed}
+  .uigroup{font-size:13px;color:#58d0ff;font-weight:600;letter-spacing:1px;margin:14px 0 2px;padding-top:10px;border-top:1px solid rgba(88,208,255,.25)}
+  .uigroup.sub{font-size:12px;color:#7fa8c9;border-top:1px dashed rgba(88,208,255,.15)}
+  .uitabs{display:flex;gap:6px;margin-bottom:14px;padding:4px;background:rgba(3,16,37,.5);border-radius:10px;border:1px solid rgba(88,208,255,.2)}
+  .uitab{flex:1;padding:8px 10px;font-size:13px;color:#7fa8c9;background:transparent;border:none;border-radius:7px;cursor:pointer;transition:.2s;font-weight:500}
+  .uitab:hover{color:#dff2ff}
+  .uitab.active{color:#dff2ff;background:rgba(88,208,255,.25);box-shadow:0 0 10px rgba(88,208,255,.3) inset}
+  .uitab-panel{animation:fadeIn .2s ease}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+  .uisel{background:rgba(3,16,37,.6);color:#dff2ff;border:1px solid rgba(88,208,255,.35);border-radius:8px;padding:6px 10px;font-size:12.5px;cursor:pointer;outline:none;min-width:110px}
+  .uisel:focus{border-color:#58d0ff}
+  .uinum{background:rgba(3,16,37,.6);color:#dff2ff;border:1px solid rgba(88,208,255,.35);border-radius:8px;padding:6px 10px;font-size:12.5px;width:90px;outline:none;text-align:center}
+  .uinum:focus{border-color:#58d0ff}
+  .api-btn{width:auto;padding:0 12px;font-size:12.5px;letter-spacing:1px;font-weight:600}
+  .api-btn:hover{transform:none;background:rgba(88,208,255,.25)}
+  /* ===== Obsidian 插件库 ===== */
+  .pluginwin{width:680px}
+  .plugin-scroll{max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin:8px 0}
+  .pitem{padding:10px 12px;border-radius:12px;background:rgba(88,208,255,.06);border:1px solid rgba(88,208,255,.18)}
+  .pitem .ph{display:flex;align-items:baseline;gap:8px}
+  .pitem .ph b{font-size:13.5px;color:#dff2ff}
+  .pitem .pa{font-size:11px;color:#7fa8c9}
+  .pitem .pd{font-size:12px;color:#a9cbe6;line-height:1.6;margin:4px 0}
+  .pitem .pl{font-size:11.5px;color:#58d0ff;text-decoration:none;word-break:break-all;user-select:text}
+  .pitem .pl:hover{text-decoration:underline}
+  #pluginMore{flex:0 0 auto;padding:9px 12px;font-size:12.5px}
+  /* ===== 定时消息 ===== */
+  .schedwin{width:600px}
+  .sched-list{max-height:42vh;overflow:auto;display:flex;flex-direction:column;gap:8px;margin:8px 0}
+  .sched-item{padding:10px 12px;border-radius:12px;background:rgba(88,208,255,.06);border:1px solid rgba(88,208,255,.18)}
+  .sched-item .sh{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .sched-item .sh b{font-size:13.5px;color:#dff2ff;flex:1}
+  .sched-item .sh .sched-tag{font-size:10.5px;padding:1px 7px;border-radius:6px;background:rgba(88,208,255,.15);color:#7fd4ff}
+  .sched-item .sh .sched-tag.group{background:rgba(255,180,88,.15);color:#ffb458}
+  .sched-item .sd{font-size:11.5px;color:#7fa8c9;line-height:1.5;margin:3px 0;word-break:break-all}
+  .sched-item .sf{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:#5d87ab}
+  .sched-item .sf .spacer{flex:1}
+  .sched-item .sf button{font-size:11px;padding:3px 10px;border-radius:7px;background:rgba(88,208,255,.1);color:#7fd4ff;border:1px solid rgba(88,208,255,.25);cursor:pointer}
+  .sched-item .sf button:hover{background:rgba(88,208,255,.22)}
+  .sched-item .sf button.danger{color:#ff8fa5;border-color:rgba(255,143,165,.3);background:rgba(255,143,165,.08)}
+  .sched-form{margin-top:10px;padding-top:12px;border-top:1px solid rgba(88,208,255,.2)}
+  .frow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .frow input[type=text],.frow input[type=number]{flex:1;background:rgba(3,16,37,.6);color:#dff2ff;border:1px solid rgba(88,208,255,.3);border-radius:8px;padding:7px 10px;font-size:12.5px;outline:none}
+  .frow input:focus,.frow textarea:focus{border-color:#58d0ff}
+  .frow textarea{flex:1;background:rgba(3,16,37,.6);color:#dff2ff;border:1px solid rgba(88,208,255,.3);border-radius:8px;padding:8px 10px;font-size:12.5px;outline:none;resize:vertical;font-family:inherit}
+  .sch-min{font-size:12px;color:#7fa8c9;white-space:nowrap}
+  .sch-time{flex-wrap:wrap}
+  .sch-time .uinum{flex:0 0 60px}
+  .sch-time-label{font-size:12px;color:#7fa8c9;white-space:nowrap}
+  .sch-time-sep{font-size:12px;color:#7fa8c9;white-space:nowrap}
+  .sch-time-hint{font-size:11px;color:#5d87ab;flex:1;min-width:200px}
+  .sched-item .sd.sch-win{color:#ffd47f;font-size:11px}
+  /* ===== QQ 机器人 ===== */
+  .qqbotwin{width:720px}
+  .qqbot-body{display:flex;gap:18px;align-items:flex-start;margin:10px 0 4px}
+  .qqbot-qr{width:238px;flex-shrink:0;text-align:center;background:rgba(3,16,37,.5);border:1px solid rgba(88,208,255,.25);border-radius:14px;padding:12px;min-height:238px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+  .qqbot-qr img{width:200px;height:200px;display:none;background:#fff;border-radius:8px;padding:6px}
+  .qqbot-qr img.show{display:block}
+  .qqbot-qr-tip{font-size:11.5px;color:#7fa8c9;line-height:1.6}
+  .qqbot-openbind{font-size:11.5px;color:#58d0ff;text-decoration:underline;cursor:pointer;display:none}
+  .qqbot-form{flex:1;min-width:0}
+  .qqbot-form label{display:block;font-size:12px;color:#9fdcff;margin:0 0 5px}
+  .qqbot-form textarea{width:100%;box-sizing:border-box;background:rgba(3,16,37,.75);border:1px solid rgba(88,208,255,.3);border-radius:10px;padding:9px 11px;color:#e7f6ff;font-size:12.5px;font-family:Consolas,monospace;resize:vertical;outline:none;margin-bottom:10px;user-select:text}
+  .qqbot-form textarea:focus{border-color:#58d0ff;box-shadow:0 0 0 3px rgba(88,208,255,.15)}
+  /* 主动发言 */
+  .pa-box{margin:12px 0 4px;background:rgba(3,16,37,.5);border:1px solid rgba(88,208,255,.22);border-radius:14px;padding:12px 14px}
+  .pa-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .pa-title{display:flex;align-items:baseline;gap:10px;min-width:0}
+  .pa-title b{font-size:13.5px;color:#dff2ff}
+  .pa-title span{font-size:11.5px;color:#7fa8c9}
+  .pa-desc{font-size:11.5px;color:#5d87ab;margin:4px 0 10px;line-height:1.6}
+  .pa-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 12px}
+  .pa-grid label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:#9fdcff}
+  .pa-grid input,.pa-grid select{background:rgba(3,16,37,.75);border:1px solid rgba(88,208,255,.3);border-radius:8px;padding:6px 8px;color:#e7f6ff;font-size:12px;outline:none;font-family:inherit}
+  .pa-grid input:focus,.pa-grid select:focus{border-color:#58d0ff}
+  .pa-models{margin-top:10px}
+  .pa-models label{display:block;font-size:11.5px;color:#9fdcff;margin-bottom:4px}
+  .pa-models input{width:100%;box-sizing:border-box;background:rgba(3,16,37,.75);border:1px solid rgba(88,208,255,.3);border-radius:8px;padding:6px 9px;color:#e7f6ff;font-size:12px;outline:none;font-family:Consolas,monospace}
+  .pa-models input:focus{border-color:#58d0ff}
+  .pa-target{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+  .pa-target select{flex:1;min-width:180px;background:rgba(3,16,37,.75);border:1px solid rgba(88,208,255,.3);border-radius:8px;padding:6px 8px;color:#e7f6ff;font-size:12px;outline:none}
+  .pa-foot{font-size:11px;color:#5d87ab;margin-top:8px;line-height:1.6;word-break:break-all}
+  .pa-box.pa-on{border-color:rgba(88,255,170,.45);box-shadow:0 0 0 3px rgba(88,255,170,.08)}
+  /* 桌宠 / 特效的总开关（由程序设置控制） */
+  body.pet-off .pet,body.pet-off .pet-bubble{display:none}
+  body.pet-text-off .pet-bubble{display:none}
+  body.fx-off .light-rays,body.fx-off .plankton,body.fx-off .bubbles,
+  body.fx-off .wave,body.fx-off .bg-pet,body.fx-off .scene-layer{display:none}
+  /* ===== 历史消耗记录弹窗 ===== */
+  .histmask{position:fixed;inset:0;background:rgba(2,10,24,.72);backdrop-filter:blur(6px);z-index:2000;display:none;align-items:center;justify-content:center}
+  .histmask.show{display:flex}
+  .histwin{width:540px;max-width:92vw;max-height:80vh;background:linear-gradient(160deg,#082344,#0a2c56);border:1px solid rgba(88,208,255,.4);border-radius:18px;box-shadow:0 30px 80px rgba(0,10,30,.8);padding:24px 26px;display:flex;flex-direction:column;animation:mIn .28s cubic-bezier(.3,1.3,.4,1)}
+  .histwin h2{font-size:18px;margin-bottom:4px;color:#dff2ff}
+  .histwin .sub{font-size:12px;color:#7fa8c9;margin-bottom:14px}
+  .hist-scroll{flex:1;min-height:0;overflow:auto}
+  table.htab{width:100%;border-collapse:collapse;font-size:12.5px}
+  .htab th{position:sticky;top:0;background:#0a2c56;color:#9fdcff;padding:9px 10px;text-align:left;border-bottom:1px solid rgba(88,208,255,.3);font-weight:600}
+  .htab td{padding:8px 10px;color:#cfe9ff;border-bottom:1px solid rgba(120,200,255,.08);font-family:"Consolas",monospace}
+  .htab tr.today td{color:#7effa5}
+  .htab .empty{text-align:center;color:#5d87ab;padding:20px 0;font-family:inherit}
+  .hist-total{margin-top:12px;padding-top:10px;border-top:1px dashed rgba(88,208,255,.3);font-size:12px;color:#8fb8d8;line-height:1.9}
+  .hist-total b{color:var(--gold)}
+  /* ===== 资源库（文件服务） ===== */
+  .files{flex:1.25;min-height:0;position:relative}
+  .pickbtn{margin-left:auto;padding:5px 12px;border-radius:999px;border:1px solid rgba(88,208,255,.45);background:rgba(10,35,70,.6);color:#9fdcff;font-size:12px;cursor:pointer;transition:.2s;font-family:inherit;flex-shrink:0}
+  .pickbtn:hover{background:rgba(88,208,255,.2);color:#fff}
+  .fs-path{padding:8px 14px;font-size:11.5px;color:#8fb8d8;font-family:"Consolas",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid rgba(120,200,255,.1);flex-shrink:0}
+  .fs-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(120,200,255,.1);flex-shrink:0}
+  .fs-up{width:26px;height:24px;border-radius:8px;border:1px solid rgba(88,208,255,.35);background:rgba(10,35,70,.6);color:#9fdcff;cursor:pointer;font-size:13px;flex-shrink:0;transition:.2s;font-family:inherit}
+  .fs-up:hover{background:rgba(88,208,255,.2)}
+  .fs-crumb{flex:1;font-size:12.5px;color:#cfe9ff;font-family:"Consolas",monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fs-list{flex:1;min-height:0;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:4px}
+  .fs-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;cursor:pointer;font-size:12.5px;color:#cfe9ff;border:1px solid transparent;transition:.15s;animation:tlIn .3s ease both;flex-shrink:0}
+  .fs-row:hover{background:rgba(88,208,255,.1);border-color:rgba(88,208,255,.25)}
+  .fs-row .ic{flex-shrink:0;width:18px;text-align:center}
+  .fs-row .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fs-row .sz{font-size:10.5px;color:#7fa8c9;font-family:"Consolas",monospace;flex-shrink:0}
+  .fs-row.dir .nm{color:#ffd36b}
+  .fs-empty{padding:22px 10px;text-align:center;font-size:12px;color:#5d87ab;line-height:1.9}
+  .fs-view{position:absolute;inset:0;z-index:5;background:linear-gradient(160deg,rgba(8,35,68,.97),rgba(10,44,86,.97));display:flex;flex-direction:column;padding:14px 16px}
+  .fs-view .vh{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-shrink:0}
+  .fs-view .vh b{flex:1;font-size:13px;color:#dff2ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fs-view .vc{flex:1;min-height:0;overflow:auto;background:rgba(3,16,37,.6);border:1px solid rgba(88,208,255,.25);border-radius:12px;padding:12px;font-size:12px;font-family:"Consolas",monospace;white-space:pre-wrap;word-break:break-all;color:#cfe9ff;line-height:1.6}
+  .fs-view .vc img{max-width:100%;border-radius:8px;display:block;margin:0 auto}
+  .msg-save{margin-top:8px;display:inline-block;padding:5px 14px;border-radius:999px;border:1px solid rgba(126,255,165,.4);background:rgba(126,255,165,.1);color:var(--green);font-size:12px;cursor:pointer;transition:.2s;font-family:inherit}
+  .msg-save:hover{background:rgba(126,255,165,.22)}
+  .msg-save.done{border-color:rgba(126,255,165,.7);color:#b6ffc9;cursor:default;background:transparent}
+  /* ===== MCP 工具面板 ===== */
+  .tools{height:200px;flex-shrink:0}
+  .tools h3 .tool-count{margin-left:auto;font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(88,208,255,.15);color:var(--aqua);font-weight:600}
+  .tool-list{padding:10px 12px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+  .tool-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(88,208,255,.06);border:1px solid rgba(88,208,255,.18);transition:.2s;cursor:default}
+  .tool-item:hover{background:rgba(88,208,255,.12);border-color:rgba(88,208,255,.4)}
+  .tool-item .tic{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);flex-shrink:0}
+  .tool-item .tnm{flex:1;font-size:12.5px;color:#cfe9ff;font-family:"Consolas",monospace}
+  .tool-item .tuse{font-size:10px;color:#7fa8c9;flex-shrink:0}
+  .tool-item.busy .tic{background:var(--gold);box-shadow:0 0 6px var(--gold);animation:pulse 1s infinite}
+  .tool-empty{padding:14px;text-align:center;font-size:12px;color:#5d87ab;line-height:1.8}
+  /* 工具调用在对话中的展示 */
+  .tool-call{margin:6px 0;padding:8px 12px;border-radius:10px;background:rgba(255,211,107,.08);border:1px solid rgba(255,211,107,.3);font-size:12.5px;font-family:"Consolas",monospace;color:#ffd36b}
+  .tool-call .tc-name{color:var(--gold);font-weight:700}
+  .tool-result{margin:4px 0 8px;padding:8px 12px;border-radius:10px;background:rgba(126,255,165,.06);border:1px solid rgba(126,255,165,.25);font-size:12px;color:#9fe8b8;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+  /* ---- Harness² 自进化 ---- */
+  .evoMask{position:fixed;inset:0;background:radial-gradient(1200px 700px at 50% 0%,rgba(10,50,90,.97),rgba(2,8,18,.99));z-index:2100;display:none;flex-direction:column;padding:26px 30px;backdrop-filter:blur(8px)}
+  .evoMask.show{display:flex}
+  .evoHead{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .evoHead h1{font-size:20px;margin:0;color:#dff2ff;letter-spacing:.5px;font-weight:600}
+  .evoPill{padding:4px 12px;border-radius:999px;font-size:12px;border:1px solid rgba(88,208,255,.4);color:#9fdcff}
+  .evoPill.on{color:#7dffb0;border-color:rgba(90,255,170,.5);box-shadow:0 0 14px rgba(90,255,170,.25)}
+  .evoPill.off{color:#ff9b9b;border-color:rgba(255,120,120,.45)}
+  .evoStats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:18px 0}
+  .evoStat{background:rgba(8,30,58,.7);border:1px solid rgba(88,208,255,.22);border-radius:12px;padding:10px 12px}
+  .evoStat b{display:block;font-size:19px;color:#cbeaff;font-variant-numeric:tabular-nums}
+  .evoStat span{font-size:11px;color:#7fa8c9}
+  .evoLog{flex:1;min-height:120px;overflow:auto;margin:0;padding:14px 16px;border-radius:14px;background:rgba(1,8,18,.85);border:1px solid rgba(88,208,255,.2);color:#a8e6bd;font:12px/1.65 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+  .evoFoot{display:flex;gap:10px;margin-top:14px;align-items:center}
+  .evoFoot .btn{flex:0 0 auto;padding:10px 20px}
+  .evoNote{font-size:11.5px;color:#7fa8c9;margin-right:auto}
+  /* Agent Lightning 面板 */
+  .aglCards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0 4px}
+  .aglCard{background:rgba(8,30,58,.7);border:1px solid rgba(88,208,255,.22);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  .aglCardHead{display:flex;align-items:center;gap:8px;font-size:14px;color:#dff2ff}
+  .aglCardHead .pickbtn{padding:4px 12px;font-size:12px;margin-left:auto}
+  .aglCardHead .pickbtn + .pickbtn{margin-left:6px}
+  .aglDot{width:9px;height:9px;border-radius:50%;background:#5b7a96;flex:0 0 auto}
+  .aglDot.on{background:#7dffb0;box-shadow:0 0 10px rgba(90,255,170,.6)}
+  .aglDot.off{background:#ff9b9b;box-shadow:0 0 8px rgba(255,120,120,.4)}
+  .aglPid{font-size:11px;color:#7fa8c9}
+  .aglCardSub{font-size:11.5px;color:#7fa8c9}
+  .aglMiniLog{height:86px;overflow:auto;margin:0;padding:8px 10px;border-radius:10px;background:rgba(1,8,18,.85);border:1px solid rgba(88,208,255,.15);color:#9fd0a8;font:10.5px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+  .aglChartWrap{background:rgba(8,30,58,.7);border:1px solid rgba(88,208,255,.22);border-radius:14px;padding:12px 14px;flex:1;min-height:0;display:flex;flex-direction:column}
+  .aglChartTitle{font-size:12px;color:#7fa8c9;margin-bottom:8px}
+  #aglChart{width:100%;flex:1;min-height:120px}
+  /* ===== 抖音摸鱼视频面板 ===== */
+  .vidmask{position:fixed;inset:0;z-index:2080;background:rgba(2,10,24,.92);display:none;align-items:center;justify-content:center}
+  .vidmask.show{display:flex}
+  .vidwin{width:min(1180px,95vw);height:min(86vh,860px);background:linear-gradient(160deg,#061d3b,#0a2c56);border:1px solid rgba(88,208,255,.45);border-radius:20px;box-shadow:0 30px 90px rgba(0,8,24,.85);display:flex;flex-direction:column;overflow:hidden;animation:mIn .3s cubic-bezier(.3,1.3,.4,1);transition:width .25s,height .25s,border-radius .25s}
+  /* 全屏 */
+  .vidmask.full{padding:0;background:rgba(2,6,16,.96);backdrop-filter:none}
+  .vidmask.full .vidwin{width:100vw;height:100vh;max-width:none;max-height:none;border-radius:0;border:none}
+  .vidmask.full .vidbody{grid-template-columns:1.7fr .8fr}
+  /* 收起成右下角小窗：自动刷不停，画面继续刷新 */
+  .vidmask.fold{padding:18px 18px 310px 18px;background:transparent;backdrop-filter:none;align-items:flex-end;justify-content:flex-end;pointer-events:none}
+  .vidmask.fold .vidwin{width:400px;height:260px;border-radius:14px;pointer-events:auto;box-shadow:0 20px 60px rgba(0,8,24,.85)}
+  .vidmask.fold .vidbar,.vidmask.fold .vidside,.vidmask.fold .vidfoot,.vidmask.fold .vidmeta{display:none}
+  .vidmask.fold .vidhead{padding:7px 10px;gap:8px}
+  .vidmask.fold .vidhead h2{font-size:12px}
+  .vidmask.fold .vid-pill{display:none}
+  .vidmask.fold .vid-x{width:26px;height:24px;font-size:12px;border-radius:7px}
+  .vidhead .foldbtn{display:none}
+  .vidmask.fold .vidhead .foldbtn{display:block}
+  .vidhead{display:flex;align-items:center;gap:12px;padding:15px 20px;border-bottom:1px solid rgba(88,208,255,.18);flex-shrink:0}
+  .vidhead h2{font-size:18px;margin:0;color:#dff2ff}
+  .vid-pill{padding:4px 12px;border-radius:999px;font-size:11.5px;border:1px solid rgba(88,208,255,.4);color:#9fdcff;white-space:nowrap}
+  .vid-pill.on{color:#7dffb0;border-color:rgba(90,255,170,.5);box-shadow:0 0 12px rgba(90,255,170,.2)}
+  .vid-pill.warn{color:#ffd36b;border-color:rgba(255,211,107,.5)}
+  .vid-pill.err{color:#ff9b9b;border-color:rgba(255,120,120,.5)}
+  .vid-x{width:32px;height:30px;border-radius:9px;border:1px solid rgba(88,208,255,.35);background:rgba(10,35,70,.6);color:#9fdcff;font-size:14px;cursor:pointer;font-family:inherit}
+  .vid-x:hover{background:rgba(255,120,120,.2);color:#ffd0d0}
+  .vidright{display:flex;align-items:center;gap:7px;margin-left:auto}
+  .vidright .vid-x:hover{background:rgba(88,208,255,.22);color:#fff}
+  .vidbar{display:flex;gap:8px;align-items:center;padding:11px 20px;border-bottom:1px solid rgba(88,208,255,.15);flex-wrap:wrap;flex-shrink:0;background:rgba(3,16,37,.35)}
+  .vidbtn{padding:7px 13px;border-radius:10px;border:1px solid rgba(88,208,255,.35);background:rgba(10,35,70,.6);color:#9fdcff;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.2s;white-space:nowrap}
+  .vidbtn:hover{background:rgba(88,208,255,.2);color:#fff}
+  .vidbtn.main{background:linear-gradient(135deg,#1e8fd8,#25c9a8);color:#02121f;border:none;font-weight:600}
+  .vidbtn.main:hover{filter:brightness(1.12)}
+  .vidbtn:disabled{opacity:.4;cursor:not-allowed;filter:none}
+  .vidbar .spacer{flex:1}
+  .vidsw{display:flex;align-items:center;gap:7px;font-size:12px;color:#9fc4e4;cursor:pointer;user-select:none}
+  .vidsw input{accent-color:#25c9a8;width:15px;height:15px;cursor:pointer}
+  .vidbody{flex:1;min-height:0;display:grid;grid-template-columns:1.5fr .9fr}
+  .vidview{position:relative;background:#000;display:flex;flex-direction:column;min-height:0;min-width:0}
+  .vidshot{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+  .vidshot img{width:100%;height:100%;object-fit:contain;display:block}
+  .vidshot #vidLive{position:absolute;object-fit:fill}
+  .vidshot .ph{text-align:center;color:#5d87ab;font-size:13px;line-height:2}
+  .vidshot .ph span{font-size:11.5px;color:#4a7699}
+  .vidshot .ph .vidbtn{display:inline-block;margin-top:14px;text-decoration:none;font-size:13px;padding:9px 18px}
+  .vidmeta{padding:10px 16px 13px;background:linear-gradient(180deg,rgba(2,12,28,.25),rgba(2,12,28,.95));flex-shrink:0}
+  .vidmeta .vt{font-size:14px;color:#e7f6ff;font-weight:600;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .vidmeta .vs{font-size:11.5px;color:#7fa8c9;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vidside{border-left:1px solid rgba(88,208,255,.15);display:flex;flex-direction:column;min-height:0;min-width:0}
+  .vidside h3{font-size:13px;color:#dff2ff;padding:13px 15px;border-bottom:1px solid rgba(88,208,255,.15);display:flex;align-items:center;gap:8px;margin:0}
+  .vidside h3 span{margin-left:auto;font-size:10.5px;color:#7fa8c9;font-weight:400}
+  .vidfeed{flex:1;min-height:0;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:9px}
+  .viditem{padding:10px 12px;border-radius:11px;background:rgba(88,208,255,.06);border:1px solid rgba(88,208,255,.18);animation:tlIn .3s ease both}
+  .viditem .vt{font-size:10.5px;color:#6f9cbf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:5px}
+  .viditem .vc{font-size:12.5px;color:#e7f6ff;line-height:1.6;word-break:break-word}
+  .viditem .vs{font-size:10px;margin-top:6px;color:#ffd36b}
+  .viditem .vs.ok{color:#7dffb0}
+  .viditem .vs.err{color:#ff9b9b}
+  .vid-log{padding:9px 14px;border-top:1px solid rgba(88,208,255,.15);font-size:11px;color:#7fa8c9;line-height:1.6;min-height:38px;max-height:64px;overflow:auto;flex-shrink:0;word-break:break-all}
+  .vid-log.err{color:#ff9b9b}
+  .vidfoot{padding:9px 20px;font-size:10.5px;color:#5d87ab;border-top:1px solid rgba(88,208,255,.15);display:flex;gap:18px;flex-shrink:0;flex-wrap:wrap}
+  .vidfoot .add{color:#7fa8c9}
+  @media(max-width:900px){.vidbody{grid-template-columns:1fr}.vidside{display:none}}
+</style>
+</head>
+<body>
+
+<div class="ocean"></div>
+<div class="light-rays"></div>
+<div class="plankton" id="plankton"></div>
+<div class="bubbles" id="bubbles"></div>
+<div class="scene-layer" id="sceneLayer"></div>
+<img class="bg-pet" src="assets/dafy_front.png" alt="">
+
+<svg class="wave" viewBox="0 0 1440 140" preserveAspectRatio="none">
+  <path fill="rgba(88,208,255,.18)" d="M0,90 C240,40 480,140 720,90 C960,40 1200,140 1440,90 L1440,140 L0,140 Z">
+    <animate attributeName="d" dur="8s" repeatCount="indefinite"
+      values="M0,90 C240,40 480,140 720,90 C960,40 1200,140 1440,90 L1440,140 L0,140 Z;
+              M0,100 C240,150 480,50 720,100 C960,150 1200,50 1440,100 L1440,140 L0,140 Z;
+              M0,90 C240,40 480,140 720,90 C960,40 1200,140 1440,90 L1440,140 L0,140 Z"/>
+  </path>
+  <path fill="rgba(126,255,165,.12)" d="M0,110 C240,160 480,60 720,110 C960,160 1200,60 1440,110 L1440,140 L0,140 Z"/>
+</svg>
+
+<!-- 桌宠大肥鱼（右下角可动互动：骨骼绑定 + 表情联动） -->
+<div class="pet" id="pet">
+  <div class="pet-wrap">
+    <svg id="m" class="act-idle" viewBox="0 0 445 463" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <radialGradient id="skinG" cx="34%" cy="28%" r="78%">
+          <stop offset="0%"  stop-color="#FFF6F2"/>
+          <stop offset="55%" stop-color="#FAE6E0"/>
+          <stop offset="100%" stop-color="#EBCDC6"/>
+        </radialGradient>
+        <linearGradient id="cuffG" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="#54557A"/>
+          <stop offset="55%" stop-color="#3A3850"/>
+          <stop offset="100%" stop-color="#2A293D"/>
+        </linearGradient>
+      </defs>
+      <g id="whole">
+        <g id="bob">
+          <image id="vFront" href="assets/dafy_front.png" x="0" y="0" width="445" height="463"/>
+
+          <!-- 腮红（摸摸头时） -->
+          <g id="blush" class="svgfx">
+            <ellipse cx="125" cy="245" rx="16" ry="8.5" fill="#F2919C" opacity=".6"/>
+            <ellipse cx="253" cy="235" rx="16" ry="8.5" fill="#F2919C" opacity=".6"/>
+          </g>
+
+          <!-- 摸摸头：原画同款圆拳（袖口朝上，从上方轻轻按下） -->
+          <g id="handPat" class="svgfx">
+            <g transform="translate(196,44) rotate(18)">
+              <path d="M10,-2 C14,-10 16,-20 14,-28 C12,-34 7,-37 0,-37 C-7,-37 -12,-34 -14,-28 C-16,-20 -14,-10 -10,-2 Z" fill="url(#cuffG)"/>
+              <path d="M10.5,-5 C6,-9 -6,-9 -10.5,-5" fill="none" stroke="#8285AF" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+              <path d="M9,-18 C3,-22 -3,-22 -9,-18" fill="none" stroke="#5A5B80" stroke-width="1.7" stroke-linecap="round" opacity=".65"/>
+              <path d="M7,-27 C3,-30 -3,-30 -7,-27" fill="none" stroke="#1F2036" stroke-width="1.7" stroke-linecap="round" opacity=".5"/>
+              <ellipse cx="0" cy="0" rx="15.5" ry="14.5" fill="url(#skinG)"/>
+              <path d="M13.4,7.3 A15.5,14.5 0 0 1 -9.9,11.1" fill="none" stroke="#CBB3AD" stroke-width="2.4" stroke-linecap="round" opacity=".9"/>
+              <ellipse cx="-5" cy="-5.4" rx="5.1" ry="3.3" transform="rotate(-20 -5 -5.4)" fill="#FFFBF8" opacity=".45"/>
+            </g>
+          </g>
+
+          <!-- 喜：星星 + 爱心（跳跳时） -->
+          <g id="fxJoy" class="svgfx">
+            <g fill="#FFC94D" stroke="#E8A72C" stroke-width="1.4">
+              <path d="M72,196 l6,15 16,1 -12,11 4,16 -14,-9 -14,9 4,-16 -12,-11 16,-1 Z"/>
+              <path d="M382,168 l5,12 13,1 -10,9 3,13 -11,-7 -11,7 3,-13 -10,-9 13,-1 Z"/>
+            </g>
+            <path d="M346,236 c-9,-11 -24,-6 -24,6 c0,12 16,22 24,28 c8,-6 24,-16 24,-28 c0,-12 -15,-17 -24,-6 Z" fill="#FF8FB1"/>
+          </g>
+        </g>
+      </g>
+    </svg>
+  </div>
+</div>
+<div class="pet-bubble" id="petBubble">嗨～点我摸摸头！🐟</div>
+
+<!-- AI 接口设置弹窗 -->
+<div class="setmask" id="setMask">
+  <div class="setwin">
+    <h2>⚙ AI 接口设置</h2>
+    <div class="sub">配置大屏的 AI 数据源 · 密钥只保存在本机，不会上传</div>
+    <div class="srcrow">
+      <div class="src on" id="srcGw">🏠 本地网关<br><span style="font-size:11px;opacity:.7">127.0.0.1:18899 免费模型</span></div>
+      <div class="src" id="srcOfm">🐟 Our Free Model<br><span style="font-size:11px;opacity:.7">127.0.0.1:18900 本地转发</span></div>
+      <div class="src" id="srcOll">🧠 本地 DeepSeek<br><span style="font-size:11px;opacity:.7">127.0.0.1:11434 本机运行</span></div>
+      <div class="src" id="srcDs">🐋 DeepSeek 官方<br><span style="font-size:11px;opacity:.7">api.deepseek.com</span></div>
+    </div>
+    <div class="frow" id="fDs" style="display:none">
+      <label>Base URL</label>
+      <input type="text" id="fBase" value="https://api.deepseek.com">
+      <div class="hint">OpenAI 兼容接口都可填：DeepSeek 官方保持默认；本地转发填 http://127.0.0.1:18900/v1；本机 DeepSeek 填 http://127.0.0.1:11434/v1</div>
+      <label style="margin-top:12px">API Key</label>
+      <div class="keyrow">
+        <input type="password" id="fKey" placeholder="sk-..." autocomplete="off">
+        <span class="eye" id="eyeBtn">显示</span>
+      </div>
+      <label style="margin-top:12px">模型名</label>
+      <input type="text" id="fModel" value="deepseek-chat" list="dsModels">
+      <datalist id="dsModels"><option value="deepseek-chat"></option><option value="deepseek-reasoner"></option><option value="openrouter/free"></option><option value="deepseek-v4.1-flash-free"></option><option value="deepseek-r1:14b"></option></datalist>
+      <div class="hint">DeepSeek：deepseek-chat 通用 · deepseek-reasoner 深度思考；本地转发：openrouter/free；本机 DeepSeek：deepseek-r1:14b（Ollama 里 ollama list 可查）</div>
+    </div>
+    <div class="btnrow">
+      <button class="btn ghost" id="testBtn">🔌 测试连接</button>
+      <button class="btn main" id="saveBtn">✔ 保存</button>
+    </div>
+    <div class="tstate" id="tState"></div>
+  </div>
+</div>
+
+<!-- 程序设置弹窗 -->
+<div class="setmask" id="uiMask">
+  <div class="setwin wide">
+    <h2>⚙ 程序设置</h2>
+    <div class="sub">桌宠与界面效果 · 设置自动保存在本机</div>
+    <div class="uitabs">
+      <button class="uitab active" data-tab="disp">🖥️ 显示与特效</button>
+      <button class="uitab" data-tab="fish">🐟 人味插件</button>
+      <button class="uitab" data-tab="evo">🧬 自进化</button>
+      <button class="uitab" data-tab="tts">🔊 语音</button>
+    </div>
+    <div class="uitab-panel" data-panel="disp">
+    <div class="uirow">
+      <div class="uinfo"><b>显示桌宠</b><span>右下角的大肥鱼（关闭后互动区域一并关闭）</span></div>
+      <label class="sw"><input type="checkbox" id="swPet"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>桌宠大小</b><span id="scaleVal">100%</span></div>
+      <input type="range" id="rgScale" min="60" max="160" step="5" value="100">
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>桌宠气泡文字</b><span>桌宠说话时显示的文字气泡</span></div>
+      <label class="sw"><input type="checkbox" id="swBubble"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>背景特效</b><span>光柱 / 浮游生物 / 气泡 / 波浪</span></div>
+      <label class="sw"><input type="checkbox" id="swFx"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>Obsidian 插件库</b><span id="pluginCacheInfo">本地未缓存</span></div>
+      <button class="pickbtn" id="openPluginLib">打开</button>
+    </div>
+    </div>
+    <div class="uitab-panel" data-panel="fish" style="display:none">
+    <div class="uigroup">🐟 人味插件（fish-tone）</div>
+    <div class="uirow">
+      <div class="uinfo"><b>人味总开关</b><span>关掉后不往系统提示里挂「说话的松紧」</span></div>
+      <label class="sw"><input type="checkbox" id="ftEnabled"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>掰多少</b><span>关 / 轻 / 中 / 猛四档</span></div>
+      <select id="ftStrength" class="uisel"><option value="off">关</option><option value="light">轻</option><option value="normal">中</option><option value="max">猛</option></select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>语病层</b><span>扫掉大部分语病但留一点余量</span></div>
+      <label class="sw"><input type="checkbox" id="ftGrammar"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>结构腔</b><span>压「不是…而是…」这类 AI 句式的密度</span></div>
+      <select id="ftMarks" class="uisel"><option value="off">关</option><option value="light">轻</option><option value="normal">中</option><option value="max">猛</option></select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>种子</b><span>同一种子 + 同一段话 = 同一结果</span></div>
+      <input type="number" id="ftSeed" class="uinum" min="0" max="999999" value="7">
+    </div>
+    <div class="uigroup sub">🎭 性格层（附属包，默认关）</div>
+    <div class="uirow">
+      <div class="uinfo"><b>性格层开关</b><span>开了才挂可爱 / 抽象性格尾巴</span></div>
+      <label class="sw"><input type="checkbox" id="ftFlavorEnabled"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>性格模式</b><span>cute 可爱尾巴 / abstract 抽象热梗</span></div>
+      <select id="ftFlavorMode" class="uisel"><option value="cute">cute 可爱</option><option value="abstract">abstract 抽象</option></select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>性格频率</b><span>挂尾巴的概率</span></div>
+      <select id="ftFlavorRate" class="uisel"><option value="low">低</option><option value="normal">中</option><option value="high">高</option></select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>性格种子</b><span>复现用</span></div>
+      <input type="number" id="ftFlavorSeed" class="uinum" min="0" max="999999" value="7">
+    </div>
+    <div class="uigroup sub">📚 学你说话（自动）</div>
+    <div class="uirow">
+      <div class="uinfo"><b>学习进度</b><span id="ftStyleInfo">还没学到东西</span></div>
+      <button class="pickbtn" id="ftStyleReset">清空重学</button>
+    </div>
+    <div class="uirow" id="ftStyleDetailRow" style="display:none">
+      <div class="uinfo"><span id="ftStyleDetail" style="white-space:pre-line"></span></div>
+    </div>
+    </div>
+    <div class="uitab-panel" data-panel="evo" style="display:none">
+    <div class="uigroup">🧬 Harness² 自进化</div>
+    <div class="uirow">
+      <div class="uinfo"><b>常驻自进化</b><span id="evoRowInfo">已停止</span></div>
+      <label class="sw"><input type="checkbox" id="evoSw2"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>监控窗口</b><span>查看每一轮 Propose–Probe–Compose 的实时过程</span></div>
+      <button class="pickbtn" id="evoOpen">打开</button>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><span style="font-size:11.5px;color:#7fa8c9">开启后会一直运行并自我迭代；关闭监控窗口不会停止，只有「停止并退出」才会结束。</span></div>
+    </div>
+    </div>
+    <div class="uitab-panel" data-panel="tts" style="display:none">
+    <div class="uigroup">🔊 语音合成</div>
+    <div class="uirow">
+      <div class="uinfo"><b>语音合成总开关</b><span id="ttsStatus">检测中…</span></div>
+      <label class="sw"><input type="checkbox" id="ttsEnabled"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>AI 回复自动播放</b><span>大肥鱼每次回复自动朗读</span></div>
+      <label class="sw"><input type="checkbox" id="ttsAutoPlay"><i></i></label>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>引擎</b><span id="ttsEngineDesc">Edge-TTS 极快（联网）/ ChatTTS 高音质（离线 CPU）</span></div>
+      <select id="ttsEngine" class="uisel" style="min-width:140px">
+        <option value="edge">⚡ Edge-TTS（推荐）</option>
+        <option value="chattts">🐢 ChatTTS（离线）</option>
+      </select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>当前音色</b><span id="ttsVoiceDesc">加载音色列表…</span></div>
+      <select id="ttsVoice" class="uisel" style="min-width:160px"></select>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>试听音色</b><span>用一段固定文本试听当前音色</span></div>
+      <button class="pickbtn" id="ttsPreview">▶ 试听</button>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>合成温度</b><span id="ttsTempVal">0.3</span></div>
+      <input type="range" id="ttsTemp" min="0.1" max="1.0" step="0.05" value="0.3">
+    </div>
+    <div class="uigroup sub" id="chatttsCloneSection">🧪 音色克隆（实验，仅 ChatTTS）</div>
+    <div class="uirow" id="chatttsCloneRow">
+      <div class="uinfo"><b>上传参考音频</b><span>3-10 秒的人声片段，生成一个专属音色 ID</span></div>
+      <button class="pickbtn" id="ttsCloneBtn">📁 选择文件</button>
+      <input type="file" id="ttsCloneFile" accept="audio/*" style="display:none">
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><span style="font-size:11.5px;color:#7fa8c9" id="ttsHint">⚡ Edge-TTS：联网使用，微软官方音色，合成速度极快（~1秒）。</span></div>
+    </div>
+    <audio id="ttsAudio" style="display:none" preload="auto"></audio>
+    </div>
+    <div class="btnrow">
+      <button class="btn ghost" id="uiReset">↺ 恢复默认</button>
+      <button class="btn" id="openSched">⏰ 定时消息</button>
+      <button class="btn" id="ftSave">🐟 保存人味设置</button>
+      <button class="btn main" id="uiDone">✔ 完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- Harness² 自进化监控窗口 -->
+<div class="evoMask" id="evoMask">
+  <div class="evoHead">
+    <h1>🧬 Harness² 自进化</h1>
+    <span class="evoPill off" id="evoPill">已停止</span>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <span style="font-size:12px;color:#7fa8c9">常驻开关</span>
+      <label class="sw"><input type="checkbox" id="evoSw"><i></i></label>
+    </div>
+  </div>
+  <div class="evoStats">
+    <div class="evoStat"><b id="evRound">0</b><span>已完成轮次</span></div>
+    <div class="evoStat"><b id="evK">0</b><span>当前递归预算 k</span></div>
+    <div class="evoStat"><b id="evOk">0</b><span>成功轮次</span></div>
+    <div class="evoStat"><b id="evExec">0</b><span>累计执行</span></div>
+    <div class="evoStat"><b id="evEdit">0</b><span>累计编辑调用</span></div>
+    <div class="evoStat"><b id="evPhase" style="font-size:12px">—</b><span>当前阶段</span></div>
+  </div>
+  <pre class="evoLog" id="evoLog">等待启动…</pre>
+  <div class="evoFoot">
+    <div class="evoNote">收起窗口不会停止进程；只有「停止并退出」会结束它。</div>
+    <button class="btn ghost" id="evoHide">收起</button>
+    <button class="btn main" id="evoStopBtn">■ 停止并退出</button>
+  </div>
+</div>
+
+<!-- Agent Lightning 训练面板 -->
+<div class="evoMask" id="aglMask">
+  <div class="evoHead">
+    <h1>⚡ Agent Lightning</h1>
+    <span class="evoPill off" id="aglPill">已停止</span>
+    <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+      <button class="btn main" id="aglStartAll" style="padding:7px 16px">▶ 全部启动</button>
+      <button class="btn ghost" id="aglStopAll" style="padding:7px 16px">■ 全部停止</button>
+    </div>
+  </div>
+  <div class="aglCards">
+    <div class="aglCard">
+      <div class="aglCardHead"><span class="aglDot" id="aglDotGw"></span><b>API Gateway</b><span class="aglPid" id="aglPidGw"></span>
+        <button class="pickbtn aglCompBtn" data-comp="gateway" data-act="start" id="aglGwStart">启动</button>
+        <button class="pickbtn aglCompBtn" data-comp="gateway" data-act="stop" id="aglGwStop">停止</button>
+      </div>
+      <div class="aglCardSub">任务分发与模型代理 · 端口 <span id="aglPort">8080</span></div>
+      <pre class="aglMiniLog" id="aglLogGw">—</pre>
+    </div>
+    <div class="aglCard">
+      <div class="aglCardHead"><span class="aglDot" id="aglDotCt"></span><b>Rollout Controller</b><span class="aglPid" id="aglPidCt"></span>
+        <button class="pickbtn aglCompBtn" data-comp="controller" data-act="start" id="aglCtStart">启动</button>
+        <button class="pickbtn aglCompBtn" data-comp="controller" data-act="stop" id="aglCtStop">停止</button>
+      </div>
+      <div class="aglCardSub">本地执行器调度（local runner · 原生 Windows 已启用）</div>
+      <pre class="aglMiniLog" id="aglLogCt">—</pre>
+    </div>
+    <div class="aglCard">
+      <div class="aglCardHead"><span class="aglDot" id="aglDotTr"></span><b>Trainer (verl)</b><span class="aglPid" id="aglPidTr"></span>
+        <button class="pickbtn aglCompBtn" data-comp="trainer" data-act="start" id="aglTrStart">启动</button>
+        <button class="pickbtn aglCompBtn" data-comp="trainer" data-act="stop" id="aglTrStop">停止</button>
+      </div>
+      <div class="aglCardSub" id="aglTrNote">本机显卡不支持训练 · 需配置远程 GPU</div>
+      <pre class="aglMiniLog" id="aglLogTr">—</pre>
+    </div>
+  </div>
+  <div class="evoStats">
+    <div class="evoStat"><b id="aglTotal">0</b><span>Rollout 总数</span></div>
+    <div class="evoStat"><b id="aglRunning">0</b><span>进行中</span></div>
+    <div class="evoStat"><b id="aglDone">0</b><span>已完成</span></div>
+    <div class="evoStat"><b id="aglFailed">0</b><span>失败</span></div>
+    <div class="evoStat"><b id="aglAvgR" style="font-size:15px">—</b><span>平均 Reward</span></div>
+  </div>
+  <div class="aglChartWrap">
+    <div class="aglChartTitle">Reward 曲线（按 rollout 顺序）</div>
+    <canvas id="aglChart" height="150"></canvas>
+  </div>
+  <div class="evoFoot">
+    <div class="evoNote" id="aglNote">Gateway / Controller 在本机运行；Trainer 需要远程 GPU，未配置时启动会提示。</div>
+    <button class="btn ghost" id="aglHide">收起</button>
+  </div>
+</div>
+
+<!-- Obsidian 插件库弹窗 -->
+<div class="setmask" id="pluginMask">
+  <div class="setwin pluginwin">
+    <h2>🧩 Obsidian 插件库</h2>
+    <div class="sub" id="pluginStatus">数据源：官方 community-plugins.json · 本地缓存加速</div>
+    <div class="frow" style="margin-bottom:6px">
+      <input type="text" id="pluginSearch" placeholder="搜索插件名称 / 作者 / 功能…" autocomplete="off">
+    </div>
+    <div class="plugin-scroll" id="pluginList"><div class="fs-empty">加载中…</div></div>
+    <div class="btnrow">
+      <button class="btn ghost" id="pluginRefresh">↻ 刷新目录</button>
+      <button class="btn main" id="pluginClose">✔ 完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- 定时消息管理弹窗 -->
+<div class="setmask" id="schedMask">
+  <div class="setwin schedwin">
+    <h2>⏰ 定时消息</h2>
+    <div class="sub">每隔固定时间向指定的人或群自动发送消息 · 配置保存在本机</div>
+    <div class="sched-list" id="schedList"><div class="fs-empty">暂无定时任务，点下方「新增」添加</div></div>
+    <div class="sched-form">
+      <div class="frow"><input type="text" id="schName" placeholder="任务名称（如：早安问候）" maxlength="50"></div>
+      <div class="frow">
+        <select id="schType" class="uisel" style="flex:0 0 110px">
+          <option value="c2c">私聊</option>
+          <option value="group">群聊</option>
+        </select>
+        <input type="text" id="schTarget" placeholder="目标 openid / group_openid">
+        <input type="number" id="schInterval" class="uinum" min="1" value="60" title="间隔（分钟）">
+        <span class="sch-min">分钟</span>
+      </div>
+      <div class="frow sch-time">
+        <span class="sch-time-label">发送时段</span>
+        <input type="number" id="schStartHour" class="uinum" min="0" max="23" value="8" title="允许发送的开始小时（0-23）">
+        <span class="sch-time-sep">:00 ～</span>
+        <input type="number" id="schEndHour" class="uinum" min="0" max="23" value="23" title="允许发送的结束小时（0-23，不含）">
+        <span class="sch-time-sep">:00</span>
+        <span class="sch-time-hint">（设为相同=全天；跨午夜如 22～6 表示晚上10点到早上6点）</span>
+      </div>
+      <div class="frow"><textarea id="schContent" rows="3" placeholder="要发送的消息内容…"></textarea></div>
+      <div class="btnrow">
+        <label class="sw" style="margin-right:auto"><input type="checkbox" id="schEnabled" checked><i></i></label>
+        <button class="btn main" id="schAdd">＋ 新增任务</button>
+      </div>
+    </div>
+    <div class="btnrow">
+      <button class="btn main" id="schClose">✔ 完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- QQ 机器人弹窗 -->
+<div class="setmask" id="qqbotMask">
+  <div class="setwin qqbotwin">
+    <h2>🐧 QQ 机器人</h2>
+    <div class="sub" id="qqbotStatus">正在检测控制服务…</div>
+    <div class="qqbot-body">
+      <div class="qqbot-qr">
+        <img id="qqbotQrImg" alt="QQ 扫码">
+        <div class="qqbot-qr-tip" id="qqbotQrTip">点击「启动机器人」显示二维码</div>
+        <a class="qqbot-openbind" id="qqbotOpenBind" href="javascript:void(0)">没有二维码？打开扫码窗口</a>
+      </div>
+      <div class="qqbot-form">
+        <label>私聊白名单（每行一个 OpenID）</label>
+        <textarea id="qqbotC2C" rows="4" placeholder="在 QQ 私聊机器人发送 /bot-me 获取"></textarea>
+        <label>群聊白名单（每行一个群 OpenID）</label>
+        <textarea id="qqbotGroup" rows="3" placeholder="群里 @机器人 发送 /bot-me 获取"></textarea>
+        <a class="qqbot-openbind" id="qqbotOpenGroup" style="display:inline;margin-bottom:8px" href="javascript:void(0)">群里没反应？临时开放群聊获取群 OpenID</a>
+        <div class="hint">只回复名单内的消息；留空表示该类消息不回复。</div>
+      </div>
+    </div>
+    <div class="pa-box">
+      <div class="pa-head">
+        <div class="pa-title">
+          <b>💬 主动找你说话</b>
+          <span id="paState">未开启</span>
+        </div>
+        <label class="sw"><input type="checkbox" id="paEnabled"><i></i></label>
+      </div>
+      <div class="pa-desc">开启后大肥鱼会按间隔自己判断要不要发消息；没话说就跳过，不会刷屏。</div>
+      <div class="pa-grid">
+        <label>判断间隔（分钟）<input id="paInterval" type="number" min="5" max="1440" step="5"></label>
+        <label>最小间隔（分钟）<input id="paGap" type="number" min="10" max="2880" step="10"></label>
+        <label>每日上限（条）<input id="paDaily" type="number" min="1" max="20" step="1"></label>
+        <label>发送时段<input id="paStart" type="number" min="0" max="23" step="1"></label>
+        <label>到（小时）<input id="paEnd" type="number" min="0" max="24" step="1"></label>
+        <label>发到<select id="paTargetType"><option value="c2c">私聊</option><option value="group">群聊</option></select></label>
+      </div>
+      <div class="pa-models">
+        <label>主动聊什么（可留空；填了会让它更愿意开口）</label>
+        <input id="paHint" type="text" placeholder="比如：关心我有没有好好吃饭、分享一点小日常">
+      </div>
+      <div class="pa-models">
+        <label>备用模型（逗号分隔，主模型限流时自动切换）</label>
+        <input id="paFallback" type="text" placeholder="big-pickle, pulse-alpha-free">
+      </div>
+      <div class="pa-target">
+        <select id="paTargetId"><option value="">用白名单第一个</option></select>
+        <button class="btn ghost" id="paTest">🧪 试一次</button>
+        <button class="btn ghost" id="paSave">💾 保存主动设置</button>
+      </div>
+      <div class="pa-foot" id="paFoot">—</div>
+    </div>
+    <div class="btnrow">
+      <button class="btn ghost" id="qqbotToggle">▶ 启动机器人</button>
+      <button class="btn ghost" id="qqbotRebind">🔄 重新扫码</button>
+      <button class="btn ghost" id="qqbotSave">💾 保存白名单</button>
+      <button class="btn ghost" id="qqbotMemSync">🧠 同步记忆</button>
+      <button class="btn main" id="qqbotClose">✔ 完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- 抖音摸鱼视频面板 -->
+<div class="vidmask" id="videoMask">
+  <div class="vidwin">
+    <div class="vidhead">
+      <h2>🎬 大肥鱼摸鱼 · 抖音</h2>
+      <span class="vid-pill" id="vidPill">检测中…</span>
+      <div class="vidright">
+        <button class="vid-x" id="vidFull" title="全屏 / 退出全屏">⛶</button>
+        <button class="vid-x" id="vidFold" title="收起成小窗（自动刷不停）">⌄</button>
+        <button class="vid-x foldbtn" id="vidExpand" title="展开面板">⤢</button>
+        <button class="vid-x" id="vidClose" title="关闭面板（后台继续自动刷）">✕</button>
+      </div>
+    </div>
+    <div class="vidbar">
+      <button class="vidbtn main" id="vidStart">▶ 开始自动刷</button>
+      <button class="vidbtn" id="vidStop">■ 停止</button>
+      <button class="vidbtn" id="vidNext">⏭ 下一条</button>
+      <button class="vidbtn" id="vidLogin">登录抖音</button>
+      <button class="vidbtn" id="vidFront">显示抖音窗口</button>
+      <button class="vidbtn" id="vidHide">隐藏窗口</button>
+      <button class="vidbtn" id="vidShot">↻ 刷新画面</button>
+      <div class="spacer"></div>
+      <label class="vidsw"><input type="checkbox" id="vidPub" checked><span>自动发布评论</span></label>
+      <select class="uisel" id="vidGap" title="自动刷视频间隔">
+        <option value="60">60 秒/条</option>
+        <option value="90">90 秒/条</option>
+        <option value="120">120 秒/条</option>
+        <option value="180">180 秒/条</option>
+      </select>
+    </div>
+    <div class="vidbody">
+      <div class="vidview">
+        <div class="vidshot" id="vidShotBox">
+          <img id="vidLive" alt="当前视频画面" style="display:none">
+          <div class="ph" id="vidPh">
+            点「下一条」开始刷视频<br>
+            <span>第一次使用需要先点「登录抖音」，登录一次后会记住</span>
+            <button class="vidbtn main" id="vidLaunch" style="display:none">▶ 启动视频服务</button>
+            <span id="vidLaunchTip" style="display:block;margin-top:9px"></span>
+          </div>
+        </div>
+        <div class="vidmeta">
+          <div class="vt" id="vidTitle">还没有开始</div>
+          <div class="vs" id="vidSub">登录后点「开始自动刷」，大肥鱼会自己找视频看，还会发评论</div>
+        </div>
+      </div>
+      <div class="vidside">
+        <h3>💬 大肥鱼的评论 <span id="vidDaily">今日 0/20</span></h3>
+        <div class="vidfeed" id="vidFeed">
+          <div class="fs-empty">还没有评论<br>开始刷视频后这里会出现大肥鱼的吐槽</div>
+        </div>
+        <div class="vid-log" id="vidLog">等待开始…</div>
+      </div>
+    </div>
+    <div class="vidfoot">
+      <span>AI 判断不好看会自动划走 · 评论间隔 ≥ 30 秒 · 每天最多 20 条</span>
+      <span class="add">登录态保存在本机 .douyin-profile，不会上传</span>
+      <span class="add">视频服务：127.0.0.1:18903</span>
+    </div>
+  </div>
+</div>
+
+<!-- 历史消耗记录弹窗 -->
+<div class="histmask" id="histMask">
+  <div class="histwin">
+    <h2>📊 每日消耗记录</h2>
+    <div class="sub">按天完整记录 · 保存在本机，关闭重开不会清零</div>
+    <div class="hist-scroll" id="histBody"></div>
+    <div class="hist-total" id="histTotal"></div>
+  </div>
+</div>
+
+<div class="stage">
+
+  <header class="topbar">
+    <div class="logo">
+      <div class="avatar"><img src="assets/dafy_front.png" alt="大肥鱼"></div>
+      <span>大肥鱼 · <b>智能大屏</b></span>
+      <button class="setbtn api-btn" id="apiBtn" title="AI 接口设置">API</button>
+      <button class="setbtn api-btn" id="qqbotBtn" title="QQ 机器人">QQBOT</button>
+      <button class="setbtn api-btn" id="videoBtn" title="大肥鱼自己刷抖音">🎬 刷视频</button>
+      <button class="setbtn api-btn" id="aglBtn" title="Agent Lightning 训练面板">⚡ AGL</button>
+    </div>
+    <div class="clock">
+      <span id="dateTxt"></span>
+      <b id="timeTxt">--:--:--</b>
+    </div>
+    <div class="status">
+      <span class="pill" id="gwPill">网关: 检测中…</span>
+      <span class="pill ok" id="mdlPill">模型: --</span>
+      <span class="pill" id="tokPill">词元: 0</span>
+      <span class="pill" id="verPill" title="大肥鱼版本">v1.0.0</span>
+      <button class="setbtn" id="setBtn" title="程序设置">⚙</button>
+    </div>
+  </header>
+
+  <aside class="left">
+    <div class="card models">
+      <h3>🌊 可用模型</h3>
+      <div class="list" id="modelList">
+        <div class="row active"><span class="dot"></span><span class="name">deepseek-v4.1-flash-free</span><span class="tag">FREE</span></div>
+      </div>
+    </div>
+    <div class="card stats">
+      <h3>🐠 今日数据 <button class="pickbtn" id="histBtn">📅 历史</button></h3>
+      <div class="grid">
+        <div class="stat"><div class="v" id="sReq">0</div><div class="k">请求数</div></div>
+        <div class="stat"><div class="v" id="sTok">0</div><div class="k">词元</div></div>
+        <div class="stat"><div class="v" id="sOk">0%</div><div class="k">成功率</div></div>
+        <div class="stat"><div class="v" id="sSpd">0</div><div class="k">词元/s</div></div>
+      </div>
+      <div class="rings">
+        <div class="ring">
+          <svg width="80" height="80"><circle cx="40" cy="40" r="34" stroke="rgba(88,208,255,.15)" stroke-width="6" fill="none"/>
+          <circle id="ring1" cx="40" cy="40" r="34" stroke="url(#ringg1)" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="213.6"/>
+          <defs><linearGradient id="ringg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#58d0ff"/><stop offset="100%" stop-color="#7effa5"/></linearGradient></defs>
+        </svg>
+          <div class="t" id="ring1t">0%</div><div class="l">可用率</div>
+        </div>
+        <div class="ring">
+          <svg width="80" height="80"><circle cx="40" cy="40" r="34" stroke="rgba(255,211,107,.15)" stroke-width="6" fill="none"/>
+          <circle id="ring2" cx="40" cy="40" r="34" stroke="#ffd36b" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="213.6"/>
+        </svg>
+          <div class="t" id="ring2t">0</div><div class="l">首字ms</div>
+        </div>
+        <div class="ring">
+          <svg width="80" height="80"><circle cx="40" cy="40" r="34" stroke="rgba(255,143,177,.15)" stroke-width="6" fill="none"/>
+          <circle id="ring3" cx="40" cy="40" r="34" stroke="#ff8fb1" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="213.6"/>
+        </svg>
+          <div class="t" id="ring3t">0</div><div class="l">平均耗时</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="card chat">
+    <h3>💬 大肥鱼对话舱</h3>
+    <div class="log" id="chatLog">
+      <div class="msg bot">
+        <div class="av"><img src="assets/dafy_front.png" alt="大肥鱼"></div>
+        <div class="bubble">嗨嗨～我是大肥鱼 🐟 右下角那只是我桌宠，摸摸它的头它会脸红的～</div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="composer-main">
+        <div class="file-preview" id="filePreview"></div>
+        <div class="composer-row">
+          <label class="upload-btn" title="上传图片/文件">
+            <input type="file" id="fileInput" multiple accept="image/*,.txt,.md,.csv,.json,.js,.ts,.py,.html,.css,.xml,.yaml,.yml,.log,.pdf,.doc,.docx,.xls,.xlsx,.zip,.rar" hidden>
+            <span>📎</span>
+          </label>
+          <textarea id="input" placeholder="跟大肥鱼说点什么吧…(Enter 发送 / Shift+Enter 换行)" rows="1"></textarea>
+          <button id="sendBtn">发送 ▸</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="right">
+    <div class="card files">
+      <h3>📁 资源库 <button class="pickbtn" id="fsPick">📂 选择文件夹</button></h3>
+      <div class="fs-path" id="fsPath">文件服务连接中…</div>
+      <div class="fs-bar">
+        <button class="fs-up" id="fsUp" title="上一级">↑</button>
+        <div class="fs-crumb" id="fsCrumb">/</div>
+      </div>
+      <div class="fs-list" id="fsList"></div>
+      <div class="fs-view" id="fsView" style="display:none"></div>
+    </div>
+    <div class="card tools">
+      <h3>🔧 MCP 工具 <span class="tool-count" id="toolCount">0</span></h3>
+      <div class="tool-list" id="toolList"></div>
+    </div>
+    <div class="card timeline">
+      <h3>📜 请求日志</h3>
+      <ul id="tlUl">
+        <li class="ok"><span class="t">--:--:--</span><span class="m">大屏已启动 · 右下角大肥鱼可以互动 🐟</span><span class="d">-</span></li>
+      </ul>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+/* ============ 时钟 ============ */
+(function(){
+  const d=document.getElementById('dateTxt'), t=document.getElementById('timeTxt');
+  const wk=['日','一','二','三','四','五','六'];
+  function tick(){
+    const n=new Date();
+    d.textContent=`${n.getFullYear()}/${String(n.getMonth()+1).padStart(2,'0')}/${String(n.getDate()).padStart(2,'0')} 星期${wk[n.getDay()]}`;
+    t.textContent=n.toTimeString().slice(0,8);
+  }
+  tick();setInterval(tick,1000);
+})();
+
+/* ============ 粒子 & 气泡 ============ */
+(function(){
+  const p=document.getElementById('plankton');
+  for(let i=0;i<22;i++){
+    const x=document.createElement('i');
+    const s=2+Math.random()*4;
+    x.style.left=Math.random()*100+'%';
+    x.style.width=s+'px';x.style.height=s+'px';
+    x.style.animationDuration=(8+Math.random()*12)+'s';
+    x.style.animationDelay=(-Math.random()*12)+'s';
+    p.appendChild(x);
+  }
+  const b=document.getElementById('bubbles');
+  for(let i=0;i<16;i++){
+    const x=document.createElement('span');
+    const s=10+Math.random()*40;
+    x.style.left=Math.random()*100+'%';
+    x.style.width=s+'px';x.style.height=s+'px';
+    x.style.animationDuration=(10+Math.random()*14)+'s';
+    x.style.animationDelay=(-Math.random()*14)+'s';
+    b.appendChild(x);
+  }
+})();
+
+/* ============ 场景化大肥鱼（固定位置 + 独立小动作，不横穿） ============ */
+(function(){
+  const L=document.getElementById('sceneLayer');
+  const W=window.innerWidth, H=window.innerHeight;
+
+  // 预设位置：分布在不同区域、不同大小、不同朝向
+  const slots=[
+    {src:'assets/fish1.jpg',w:220,x:60, y:H*0.20, z:'back', flip:false},
+    {src:'assets/fish1.jpg',w:260,x:W-380,y:H*0.15, z:'far', flip:false},
+    {src:'assets/fish1.jpg',w:340,x:W*0.45,y:H*0.08, z:'', flip:false},
+    {src:'assets/fish1.jpg',w:280,x:W*0.08,y:H*0.78, z:'far', flip:true},
+    {src:'assets/fish1.jpg',w:240,x:W*0.72,y:H*0.85, z:'far', flip:true},
+  ];
+
+  slots.forEach((s,i)=>{
+    const el=document.createElement('div');
+    el.className='scene-fish'+(s.z?' '+s.z:'');
+    el.style.width=s.w+'px';
+    el.style.left=s.x+'px';
+    el.style.top=s.y+'px';
+    if(s.flip) el.style.transform='scaleX(-1)';
+    el.innerHTML=`<img src="${s.src}" loading="lazy" alt="大肥鱼">`;
+
+    // 呼吸（持续上下浮动 + 轻微缩放）
+    const breathDur=4+Math.random()*3;
+    el.animate(
+      [
+        {translate:'0 0', scale:'1 1'},
+        {translate:`0 ${-6-Math.random()*10}px`, scale:'1 1.01'},
+        {translate:'0 0', scale:'1 1'},
+      ],
+      {duration:breathDur*1000, iterations:Infinity, easing:'ease-in-out', delay:-Math.random()*breathDur*1000}
+    );
+    // 偶发轻摆（每 6~10s 触发一次 rotate）
+    const swayKey=[
+      {transform:(s.flip?'scaleX(-1) ':'')+'rotate(0)', offset:0},
+      {transform:(s.flip?'scaleX(-1) ':'')+`rotate(${3+Math.random()*4}deg)`, offset:.3},
+      {transform:(s.flip?'scaleX(-1) ':'')+`rotate(${-3-Math.random()*4}deg)`, offset:.6},
+      {transform:(s.flip?'scaleX(-1) ':'')+'rotate(0)', offset:1},
+    ];
+    el.animate(
+      swayKey,
+      {duration:2200+Math.random()*800, iterations:Infinity, easing:'ease-in-out', delay:1500+i*300}
+    );
+
+    L.appendChild(el);
+  });
+})();
+
+/* ============ 程序设置（桌宠大小/显示/文字/特效） ============ */
+const UI_DEFAULT={petOn:true,petScale:1,bubbleOn:true,fxOn:true,ttsEnabled:false,ttsAutoPlay:false,ttsVoice:'dafy',ttsTemp:0.3,ttsEngine:'edge'};
+let uiState=(()=>{
+  try{ return Object.assign({},UI_DEFAULT,JSON.parse(localStorage.getItem('dafyUI')||'{}')); }
+  catch(e){ return Object.assign({},UI_DEFAULT); }
+})();
+function applyUI(){
+  document.documentElement.style.setProperty('--pet-scale',uiState.petScale);
+  document.body.classList.toggle('pet-off',!uiState.petOn);
+  document.body.classList.toggle('pet-text-off',!uiState.bubbleOn);
+  document.body.classList.toggle('fx-off',!uiState.fxOn);
+}
+function saveUI(){
+  try{ localStorage.setItem('dafyUI',JSON.stringify(uiState)); }catch(e){}
+  applyUI();
+}
+applyUI();
+
+/* ============ 桌宠大肥鱼互动 ============ */
+(function(){
+  const pet=document.getElementById('pet');
+  const bubble=document.getElementById('petBubble');
+  const sayings={
+    pat:['呜～好舒服～','摸摸头要给零食哦 🐟','咿呀～ 被摸得脸红啦','再摸摸嘛～ 不要停～','大肥鱼最喜欢被摸摸了 💙'],
+    click:['嘿！戳我干嘛～','哇！你吓到我了！','哼哼，再戳我就生气了','戳到你啦～ 略略略','大肥鱼在呢！有啥事？'],
+    jump:['耶～ 开心！','嗨嗨嗨！今天好开心～','鱼鱼鱼！跳到你心里啦 💙','啦啦啦～ 游上来跟你玩啦'],
+    idle:['（大肥鱼偷偷瞟你一眼）','…… 你在干嘛呢','今天的大海好蓝呀','要是有零食吃就好了～','大肥鱼在认真工作呢！'],
+  };
+
+  function pick(arr){return arr[Math.floor(Math.random()*arr.length)]}
+
+  function showBubble(text){
+    if(!uiState.petOn||!uiState.bubbleOn) return;
+    bubble.textContent=text;
+    bubble.classList.add('show');
+    clearTimeout(showBubble._t);
+    showBubble._t=setTimeout(()=>bubble.classList.remove('show'),2400);
+  }
+
+  function spawnFX(x,y,emoji){
+    if(!uiState.fxOn||!uiState.petOn) return;
+    const el=document.createElement('div');
+    el.className='fx';
+    el.textContent=emoji;
+    el.style.left=x+'px';el.style.top=y+'px';
+    el.style.setProperty('--dx',(Math.random()*40-20)+'px');
+    pet.appendChild(el);
+    setTimeout(()=>el.remove(),1400);
+  }
+
+  function runAnim(cls,face,ms){
+    const m=document.getElementById('m');
+    m.classList.remove('act-idle','act-jump','act-pat','act-shake');
+    void m.offsetWidth; // reflow
+    m.classList.add(cls);
+    const vf=document.getElementById('vFront');
+    vf.setAttribute('href', face ? 'assets/dafy_front_'+face+'.png' : 'assets/dafy_front.png');
+    clearTimeout(runAnim._t);
+    runAnim._t=setTimeout(()=>{
+      m.classList.remove('act-jump','act-pat','act-shake');
+      m.classList.add('act-idle');
+      vf.setAttribute('href','assets/dafy_front.png');
+    },ms);
+  }
+
+  // 悬停 —— 出现 + 说一句话
+  pet.addEventListener('mouseenter',()=>{
+    pet.classList.add('hot');
+  });
+  pet.addEventListener('mouseleave',()=>{
+    pet.classList.remove('hot');
+  });
+
+  // 点击 —— 区分摸摸头 vs 戳身体 vs 戳尾巴（动作 + 表情联动）
+  pet.addEventListener('click',e=>{
+    if(!uiState.petOn) return;
+    const r=pet.getBoundingClientRect();
+    const sc=uiState.petScale||1;
+    // 换算到桌宠自身坐标系（缩放后点击区域同步缩放）
+    const lx=(e.clientX-r.left)/sc, ly=(e.clientY-r.top)/sc;
+    const yRatio=(e.clientY-r.top)/r.height; // 头=上 1/3，身体=中间，尾巴=下
+    if(yRatio<0.33){
+      // 摸头 → 乐表情 + 小手拍头 + 脸红
+      runAnim('act-pat','happy',1600);
+      spawnFX(lx,ly,'💗');
+      spawnFX(lx+30,ly-10,'✨');
+      showBubble(pick(sayings.pat));
+    }else if(yRatio>0.75){
+      // 戳尾巴 → 怒表情 + 抖动
+      runAnim('act-shake','anger',1200);
+      spawnFX(lx,ly,'💨');
+      showBubble('哎哟～ 别戳尾巴啦！');
+    }else{
+      // 戳身体 → 喜表情 + 开心跳
+      runAnim('act-jump','joy',1600);
+      spawnFX(lx,ly,'⭐');
+      spawnFX(lx-20,ly-20,'✨');
+      spawnFX(lx+20,ly-20,'💫');
+      showBubble(pick(sayings.jump));
+    }
+  });
+
+  // 偶发自动小动作
+  setInterval(()=>{
+    if(!uiState.petOn) return;   // 关闭桌宠后停止自动动作
+    // 每 12s 有 30% 概率跳一下
+    if(Math.random()<.3){
+      runAnim('act-jump','joy',1600);
+      spawnFX(30,20,'⭐');
+      spawnFX(160,10,'✨');
+      setTimeout(()=>showBubble(pick(sayings.idle)),400);
+    }
+  },12000);
+
+  // 打招呼
+  setTimeout(()=>{ showBubble('嗨～ 我是大肥鱼！摸摸我的头试试～ 🐟'); },1500);
+})();
+
+/* ============ 网关 / 对话 ============ */
+const GATEWAY='http://127.0.0.1:18899';
+const GW_KEY='ofm-u5iYc2GQAeJMhgme3HE7ocXUy_9hdzXb';
+const APP_VERSION='1.2.5';   // 版本号：升级时同步修改这里与 installer/VERSION
+const EL={
+  gwPill:document.getElementById('gwPill'),
+  mdlPill:document.getElementById('mdlPill'),
+  tokPill:document.getElementById('tokPill'),
+  modelList:document.getElementById('modelList'),
+  chatLog:document.getElementById('chatLog'),
+  input:document.getElementById('input'),
+  sendBtn:document.getElementById('sendBtn'),
+  fileInput:document.getElementById('fileInput'),
+  filePreview:document.getElementById('filePreview'),
+  tlUl:document.getElementById('tlUl'),
+  sReq:document.getElementById('sReq'),
+  sTok:document.getElementById('sTok'),
+  sOk:document.getElementById('sOk'),
+  sSpd:document.getElementById('sSpd'),
+};
+let models=[];
+let curModel=(()=>{
+  try{ return localStorage.getItem('dafyModel')||'deepseek-v4.1-flash-free'; }
+  catch(e){ return 'deepseek-v4.1-flash-free'; }
+})();
+function saveCurModel(id){
+  curModel=id;
+  try{ localStorage.setItem('dafyModel',id); }catch(e){}
+}
+
+/* ============ 附件管理 ============ */
+let pendingFiles=[]; // {file, dataUrl?, name, size, isImage, ext}
+const IMG_EXT=['png','jpg','jpeg','gif','webp','bmp','svg'];
+function fileIcon(name){
+  const ext=(name.split('.').pop()||'').toLowerCase();
+  if(IMG_EXT.includes(ext)) return '🖼️';
+  const map={pdf:'📕',doc:'📘',docx:'📘',xls:'📗',xlsx:'📗',ppt:'📙',pptx:'📙',
+    txt:'📝',md:'📝',csv:'📊',json:'{}',js:'📜',ts:'📜',py:'🐍',html:'🌐',css:'🎨',
+    zip:'🗜️',rar:'🗜️','7z':'🗜️',mp3:'🎵',mp4:'🎬',avi:'🎬'};
+  return map[ext]||'📄';
+}
+function readFileAsDataUrl(f){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
+}
+async function addFilesToPending(fileList){
+  for(const f of fileList){
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    const isImage=IMG_EXT.includes(ext);
+    const item={file:f,name:f.name,size:f.size,isImage,ext,dataUrl:null};
+    if(isImage){ try{ item.dataUrl=await readFileAsDataUrl(f); }catch(_){} }
+    pendingFiles.push(item);
+  }
+  renderFilePreview();
+}
+function renderFilePreview(){
+  EL.filePreview.innerHTML='';
+  pendingFiles.forEach((it,idx)=>{
+    const chip=document.createElement('div'); chip.className='file-chip';
+    if(it.isImage){
+      chip.innerHTML=`<img class="thumb" src="${it.dataUrl}" alt=""><div class="meta"><span class="fn">${it.name}</span><span class="fs">${fmtSize(it.size)}</span></div><span class="rm" title="移除">×</span>`;
+    }else{
+      chip.innerHTML=`<span class="thumb ico">${fileIcon(it.name)}</span><div class="meta"><span class="fn">${it.name}</span><span class="fs">${fmtSize(it.size)}</span></div><span class="rm" title="移除">×</span>`;
+    }
+    chip.querySelector('.rm').onclick=()=>{ pendingFiles.splice(idx,1); renderFilePreview(); };
+    EL.filePreview.appendChild(chip);
+  });
+}
+EL.fileInput.addEventListener('change',async(e)=>{
+  await addFilesToPending(Array.from(e.target.files||[]));
+  e.target.value=''; // 允许重复选同一文件
+});
+
+/* 拖拽上传 */
+const composerEl=document.querySelector('.composer');
+['dragenter','dragover'].forEach(ev=>{
+  composerEl.addEventListener(ev,e=>{ e.preventDefault(); composerEl.classList.add('drag-over'); });
+});
+['dragleave','drop'].forEach(ev=>{
+  composerEl.addEventListener(ev,e=>{ e.preventDefault(); composerEl.classList.remove('drag-over'); });
+});
+composerEl.addEventListener('drop',async(e)=>{
+  await addFilesToPending(Array.from(e.dataTransfer?.files||[]));
+});
+
+
+/* ---- 每日消耗持久化（localStorage 按天记录，保留 90 天） ---- */
+function todayKey(){const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+function loadAllStats(){ try{ const o=JSON.parse(localStorage.getItem('dafyStats')||'{}'); return (o&&typeof o==='object'&&!Array.isArray(o))?o:{}; }catch(e){ return {}; } }
+let statsAll=loadAllStats();
+let stats=Object.assign({req:0,tok:0,ok:0,sum:0}, statsAll[todayKey()]||{});
+function saveStats(){
+  statsAll[todayKey()]=stats;
+  const keys=Object.keys(statsAll).sort();
+  while(keys.length>90){ delete statsAll[keys.shift()]; }
+  try{ localStorage.setItem('dafyStats',JSON.stringify(statsAll)); }catch(e){}
+}
+
+/* ---- 历史记录弹窗 ---- */
+const histMask=document.getElementById('histMask');
+document.getElementById('histBtn').onclick=()=>{ renderHist(); histMask.classList.add('show'); };
+histMask.addEventListener('click',e=>{ if(e.target===histMask) histMask.classList.remove('show'); });
+function renderHist(){
+  const keys=Object.keys(statsAll).sort().reverse();
+  let html;
+  if(!keys.length){
+    html='<div class="empty">还没有记录 · 跟大肥鱼聊一句，这里就会按天记下消耗 🐟</div>';
+  }else{
+    html='<table class="htab"><thead><tr><th>日期</th><th>请求数</th><th>词元</th><th>成功率</th><th>平均耗时</th></tr></thead><tbody>';
+    keys.forEach(k=>{
+      const d=statsAll[k]||{};
+      const okr=d.req?Math.round((d.ok||0)/d.req*100)+'%':'-';
+      const avg=d.req?((d.sum||0)/d.req).toFixed(1)+'s':'-';
+      html+=`<tr${k===todayKey()?' class="today"':''}><td>${k}${k===todayKey()?' （今天）':''}</td><td>${d.req||0}</td><td>${d.tok||0}</td><td>${okr}</td><td>${avg}</td></tr>`;
+    });
+    html+='</tbody></table>';
+  }
+  document.getElementById('histBody').innerHTML=html;
+  let r=0,t=0,o=0,s=0;
+  Object.keys(statsAll).forEach(k=>{ const d=statsAll[k]||{}; r+=d.req||0; t+=d.tok||0; o+=d.ok||0; s+=d.sum||0; });
+  document.getElementById('histTotal').innerHTML = r
+    ? `累计 <b>${keys.length}</b> 天 · 总请求 <b>${r}</b> · 总词元 <b>${t}</b> · 总成功率 <b>${Math.round(o/r*100)}%</b> · 平均耗时 <b>${(s/r).toFixed(1)}s</b>`
+    : '';
+}
+
+/* ---- 启动时从记录恢复今日数据 UI（重开不清零） ---- */
+(function(){
+  EL.sReq.textContent=stats.req; EL.sTok.textContent=stats.tok;
+  EL.tokPill.textContent='词元: '+stats.tok;
+  if(stats.req){
+    EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
+    EL.sSpd.textContent=Math.round(stats.tok/Math.max(stats.sum,.1));
+    updateRings(stats.sum/stats.req);
+  }
+})();
+
+/* ---- AI 数据源配置（localStorage 持久化） ---- */
+const OFM_BASE='http://127.0.0.1:18900/v1';
+const OFM_KEY='ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg';
+const OFM_MODEL='openrouter/free';
+// 免费模型额度随时会耗尽：主模型失败时按这个顺序自动换着试
+const AUTO_FALLBACK_MODELS=['nvidia/nemotron-3.5-super-vl:free','stepfun-ai/step-5-preview','minimaxai/minimax-m3.1-flash','dots-studio/dots-3-note-preview:free','pulse-alpha-free'];
+const OLL_BASE='http://127.0.0.1:11434/v1';
+const OLL_MODEL='deepseek-r1:14b';
+const DEF_CONF={mode:'ofm',baseUrl:OFM_BASE,apiKey:OFM_KEY,model:OFM_MODEL};
+function aiConf(){ try{ return Object.assign({},DEF_CONF,JSON.parse(localStorage.getItem('dafyAI')||'{}')); }catch(e){ return Object.assign({},DEF_CONF); } }
+function confBase(c){ return String(c.baseUrl||'').replace(/\/+$/,''); }
+function aiChatUrl(c){ return c.mode==='gw' ? `${GATEWAY}/v1/chat/completions` : confBase(c)+'/chat/completions'; }
+function aiChatKey(c){ return c.mode==='gw' ? GW_KEY : c.apiKey; }
+function aiChatModel(c){ return c.mode==='gw' ? curModel : (c.model||curModel); }
+function useOllConf(){
+  const c={mode:'oll',baseUrl:OLL_BASE,apiKey:'',model:OLL_MODEL};
+  localStorage.setItem('dafyAI',JSON.stringify(c));
+  return c;
+}
+async function probeOfm(){
+  try{
+    const r=await fetch(OFM_BASE+'/models',{headers:{Authorization:'Bearer '+OFM_KEY}});
+    return r.ok;
+  }catch(e){ return false; }
+}
+function useOfmConf(){
+  const c={mode:'ofm',baseUrl:OFM_BASE,apiKey:OFM_KEY,model:OFM_MODEL};
+  localStorage.setItem('dafyAI',JSON.stringify(c));
+  return c;
+}
+
+async function fetchModels(){
+  const c=aiConf();
+  if(c.mode==='ds'||c.mode==='ofm'||c.mode==='oll'){
+    const label = c.mode==='ds' ? 'DeepSeek' : (c.mode==='ofm' ? '本地转发' : '本机 DeepSeek');
+    EL.gwPill.textContent=label+': 连接中…'; EL.gwPill.className='pill';
+    try{
+      if(c.mode!=='oll' && !c.apiKey) throw new Error('未配置 API Key（点右上 ⚙ 设置）');
+      const headers = c.apiKey ? {Authorization:'Bearer '+c.apiKey} : {};
+      const r=await fetch(confBase(c)+'/models',{headers});
+      if(!r.ok) throw new Error(r.status===401?'Key 无效 (401)':'HTTP '+r.status);
+      const j=await r.json();
+      models=[...new Set([c.model].concat((j.data||[]).map(m=>m.id)))];
+      EL.gwPill.textContent=label+': 在线 ✓'; EL.gwPill.className='pill ok';
+      renderModels();
+    }catch(e){
+      const tip = c.mode==='oll' ? '（先运行 E:\\ai\\ollama\\启动本地DeepSeek.cmd）' : '';
+      EL.gwPill.textContent=label+': 未连接 ✗'; EL.gwPill.className='pill err';
+      addTL('err',label+' 连不上：'+e.message+tip);
+      models=[c.model]; renderModels();
+    }
+    return;
+  }
+  try{
+    const r=await fetch(`${GATEWAY}/v1/models`,{headers:{Authorization:'Bearer '+GW_KEY}});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    models=(j.data||[]).map(m=>m.id);
+    EL.gwPill.textContent='网关: 在线 ✓'; EL.gwPill.className='pill ok';
+    renderModels();
+  }catch(e){
+    // 网关（18899）离线时，自动切到 Our Free Model 本地转发（18900）
+    if(await probeOfm()){
+      useOfmConf();
+      EL.gwPill.textContent='已切到本地转发: 在线 ✓'; EL.gwPill.className='pill ok';
+      addTL('ok','本地网关未启动 → 已自动切到 Our Free Model 本地转发 (18900)');
+      return fetchModels();
+    }
+    EL.gwPill.textContent='网关: 离线 ✗ · 可在 ⚙ 设置切到本地转发'; EL.gwPill.className='pill err';
+    addTL('err','网关未启动 · 大屏演示模式（⚙ 设置 → Our Free Model 本地转发）');
+    models=['deepseek-v4.1-flash-free','glm-5.3-flash-free','space-bunny-free','kilo-auto/free'];
+    renderModels();
+  }
+}
+function renderModels(){
+  const c=aiConf();
+  EL.modelList.innerHTML='';
+  // 网关模式用 curModel；DeepSeek/本地转发用自己的 conf.model，互不覆盖
+  const activeId = c.mode==='gw'
+    ? (models.includes(curModel)?curModel:models[0])
+    : (models.includes(c.model)?c.model:models[0]);
+  models.forEach(id=>{
+    const row=document.createElement('div');
+    row.className='row'+(id===activeId?' active':'');
+    const tag = c.mode==='ds' ? 'DS' : (id.includes('free')||id.includes('kilo')?'FREE':'API');
+    row.innerHTML=`<span class="dot"></span><span class="name">${id}</span><span class="tag">${tag}</span>`;
+    row.onclick=async ()=>{
+      document.querySelectorAll('#modelList .row').forEach(r=>r.classList.remove('active'));
+      row.classList.add('active');
+      const c=aiConf();
+      if(c.mode==='gw'){
+        saveCurModel(id);
+      }else{
+        const nc=aiConf(); nc.model=id;
+        localStorage.setItem('dafyAI',JSON.stringify(nc));
+      }
+      // 通知 QQ 机器人同步切模型（它跑在本地，需要写 config.json + 重启）
+      try{
+        await fetch(QQBOT_API+'/api/model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:id})});
+      }catch(e){/* bridge 没跑时静默，不要打断用户 */}
+      EL.mdlPill.textContent='模型: '+id;
+      addTL('ok','切换模型 → '+id);
+    };
+    EL.modelList.appendChild(row);
+  });
+  if(activeId && c.mode==='gw') saveCurModel(activeId);
+  EL.mdlPill.textContent='模型: '+(activeId||curModel);
+}
+function addTL(cls,msg,extra){
+  const li=document.createElement('li'); li.className=cls||'';
+  const n=new Date().toTimeString().slice(0,8);
+  li.innerHTML=`<span class="t">${n}</span><span class="m">${msg}</span><span class="d">${extra||'-'}</span>`;
+  EL.tlUl.prepend(li);
+  while(EL.tlUl.children.length>20) EL.tlUl.removeChild(EL.tlUl.lastChild);
+}
+function appendMsg(role,text,attachments){
+  const wrap=document.createElement('div'); wrap.className='msg '+role;
+  if(role==='user'){ wrap.innerHTML=`<div class="av">我</div><div class="bubble"></div>`; }
+  else{ wrap.innerHTML=`<div class="av"><img src="assets/dafy_front.png" alt="大肥鱼"></div><div class="bubble"></div>`; }
+  const bubble=wrap.querySelector('.bubble');
+  if(text) bubble.textContent=text;
+  // 渲染附件（图片/文件）
+  if(attachments&&attachments.length){
+    attachments.forEach(a=>{
+      if(a.isImage&&a.dataUrl){
+        const img=document.createElement('img'); img.className='attach-img'; img.src=a.dataUrl; img.alt=a.name; img.title=a.name;
+        img.onclick=()=>window.open(a.dataUrl,'_blank');
+        bubble.appendChild(img);
+      }else{
+        const fa=document.createElement('div'); fa.className='file-attach'; fa.title='点击下载 '+a.name;
+        fa.innerHTML=`<span class="fa-ic">${fileIcon(a.name)}</span><div class="fa-meta"><span class="fa-nm">${a.name}</span><span class="fa-sz">${fmtSize(a.size)}</span></div>`;
+        fa.onclick=()=>{ const url=a.dataUrl||URL.createObjectURL(a.file); const l=document.createElement('a'); l.href=url; l.download=a.name; l.click(); };
+        bubble.appendChild(fa);
+      }
+    });
+  }
+  EL.chatLog.appendChild(wrap); EL.chatLog.scrollTop=EL.chatLog.scrollHeight; return wrap;
+}
+function appendTyping(){
+  const wrap=document.createElement('div'); wrap.className='msg bot typing';
+  wrap.innerHTML=`<div class="av"><img src="assets/dafy_front.png" alt="大肥鱼"></div><div class="bubble"><i></i><i></i><i></i></div>`;
+  EL.chatLog.appendChild(wrap); EL.chatLog.scrollTop=EL.chatLog.scrollHeight; return wrap;
+}
+function updateRings(dt){
+  const ok=stats.ok/stats.req;
+  document.getElementById('ring1t').textContent=Math.round(ok*100)+'%';
+  document.getElementById('ring1').style.strokeDashoffset=213.6*(1-ok);
+  document.getElementById('ring2t').textContent=Math.round(dt*1000);
+  document.getElementById('ring2').style.strokeDashoffset=213.6*(1-Math.min(1,dt/5));
+  const avg=stats.sum/stats.req;
+  document.getElementById('ring3t').textContent=avg.toFixed(1)+'s';
+  document.getElementById('ring3').style.strokeDashoffset=213.6*(1-Math.min(1,avg/10));
+}
+async function demoReply(p){
+  await new Promise(r=>setTimeout(r,700+Math.random()*1000));
+  if(/你好|hi|hello|嗨|在吗/.test(p)) return '嗨嗨～大肥鱼在呢！摸摸我的头桌宠试试～ 🐟';
+  if(/名字|你是谁|介绍/.test(p)) return '我是大肥鱼！穿女仆装的人鱼小精灵～ 右下角那只是我的桌宠分身，可以摸摸头哦！';
+  if(/时间|几点/.test(p)) return '现在是 '+new Date().toTimeString().slice(0,8)+'～';
+  if(/笑话|讲个/.test(p)) return '为什么人鱼不上数学课？因为一看到 π 就想游开～ 🐠';
+  if(/谢谢|感谢/.test(p)) return '不客气～能陪你就是大肥鱼最开心的事啦！💙';
+  return '刚刚所有模型都没接上（免费额度可能用完了），等会儿再跟我说一次吧～';
+}
+EL.input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();EL.sendBtn.click()} });
+EL.sendBtn.onclick=()=>{
+  const p=EL.input.value.trim();
+  const files=pendingFiles.slice();
+  if(!p&&!files.length) return;
+  EL.input.value='';
+  pendingFiles=[];
+  renderFilePreview();
+  chat(p,files);
+};
+EL.input.addEventListener('input',()=>{ EL.input.style.height='auto'; EL.input.style.height=Math.min(180,EL.input.scrollHeight)+'px'; });
+
+/* ---- 设置弹窗交互 ---- */
+const setMask=document.getElementById('setMask');
+let srcMode=aiConf().mode;
+function srcLabel(m){
+  if(m==='ds') return 'DeepSeek 官方';
+  if(m==='ofm') return 'Our Free Model 本地转发';
+  if(m==='oll') return '本机 DeepSeek';
+  return '本地网关';
+}
+function fillSourceDefaults(m){
+  const b=document.getElementById('fBase'), k=document.getElementById('fKey'), mo=document.getElementById('fModel');
+  if(m==='ofm'){
+    b.value=OFM_BASE; k.value=OFM_KEY; mo.value=OFM_MODEL;
+  }else if(m==='oll'){
+    b.value=OLL_BASE; k.value=''; mo.value=OLL_MODEL;
+  }else if(m==='ds'){
+    b.value='https://api.deepseek.com'; k.value=''; mo.value='deepseek-chat';
+  }
+}
+function setSrc(m){
+  const prev=srcMode;
+  srcMode=m;
+  document.getElementById('srcGw').classList.toggle('on',m==='gw');
+  document.getElementById('srcOfm').classList.toggle('on',m==='ofm');
+  document.getElementById('srcOll').classList.toggle('on',m==='oll');
+  document.getElementById('srcDs').classList.toggle('on',m==='ds');
+  document.getElementById('fDs').style.display = m==='gw' ? 'none' : 'block';
+  if(prev!==m && m!=='gw') fillSourceDefaults(m);
+}
+document.getElementById('apiBtn').onclick=()=>{
+  const c=aiConf();
+  setSrc(c.mode);
+  document.getElementById('fBase').value=c.baseUrl;
+  document.getElementById('fKey').value=c.apiKey;
+  document.getElementById('fModel').value=c.model;
+  const st=document.getElementById('tState'); st.textContent=''; st.className='tstate';
+  setMask.classList.add('show');
+};
+document.getElementById('srcGw').onclick=()=>setSrc('gw');
+document.getElementById('srcOfm').onclick=()=>setSrc('ofm');
+document.getElementById('srcOll').onclick=()=>setSrc('oll');
+document.getElementById('srcDs').onclick=()=>setSrc('ds');
+document.getElementById('eyeBtn').onclick=()=>{
+  const k=document.getElementById('fKey'), eye=document.getElementById('eyeBtn');
+  if(k.type==='password'){ k.type='text'; eye.textContent='隐藏'; } else { k.type='password'; eye.textContent='显示'; }
+};
+document.getElementById('saveBtn').onclick=()=>{
+  const c={
+    mode:srcMode,
+    baseUrl:srcMode==='gw' ? DEF_CONF.baseUrl : confBase({baseUrl:document.getElementById('fBase').value.trim()||DEF_CONF.baseUrl}),
+    apiKey:srcMode==='gw' ? '' : document.getElementById('fKey').value.trim(),
+    model:srcMode==='gw' ? 'deepseek-chat' : (document.getElementById('fModel').value.trim()||'deepseek-chat')
+  };
+  localStorage.setItem('dafyAI',JSON.stringify(c));
+  setMask.classList.remove('show');
+  addTL('ok','AI 设置已保存 → '+srcLabel(c.mode));
+  fetchModels();
+};
+document.getElementById('testBtn').onclick=async()=>{
+  const st=document.getElementById('tState');
+  st.className='tstate'; st.textContent='测试中…';
+  try{
+    if(srcMode==='gw'){
+      const r=await fetch(`${GATEWAY}/v1/models`,{headers:{Authorization:'Bearer '+GW_KEY}});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      st.textContent='✓ 本地网关连接正常';
+    }else{
+      const base=confBase({baseUrl:document.getElementById('fBase').value.trim()});
+      const key=document.getElementById('fKey').value.trim();
+      if(!base) throw new Error('请先填 Base URL');
+      if(srcMode!=='oll' && !key) throw new Error('请先填 API Key');
+      const headers = key ? {Authorization:'Bearer '+key} : {};
+      const r=await fetch(base+'/models',{headers});
+      if(!r.ok) throw new Error(r.status===401?'Key 无效 (401)':'HTTP '+r.status);
+      const j=await r.json();
+      const ids=(j.data||[]).map(m=>m.id);
+      const want=document.getElementById('fModel').value.trim();
+      st.textContent='✓ '+srcLabel(srcMode)+' 连接正常 · 可用 '+ids.length+' 个模型'+(want&&!ids.includes(want)?'（注意：'+want+' 不在列表里）':'');
+    }
+  }catch(e){
+    st.className='tstate err';
+    st.textContent='✗ '+e.message+(srcMode==='gw'&&await probeOfm()?'（本地转发 18900 在线，可切过去）':'');
+  }
+};
+setMask.addEventListener('click',e=>{ if(e.target===setMask) setMask.classList.remove('show'); });
+
+/* ---- 程序设置弹窗交互 ---- */
+const uiMask=document.getElementById('uiMask');
+const swPet=document.getElementById('swPet');
+const swBubble=document.getElementById('swBubble');
+const swFx=document.getElementById('swFx');
+const rgScale=document.getElementById('rgScale');
+const scaleVal=document.getElementById('scaleVal');
+function syncUIControls(){
+  swPet.checked=uiState.petOn;
+  swBubble.checked=uiState.bubbleOn;
+  swFx.checked=uiState.fxOn;
+  rgScale.value=Math.round(uiState.petScale*100);
+  scaleVal.textContent=Math.round(uiState.petScale*100)+'%';
+  rgScale.disabled=!uiState.petOn;
+  swBubble.disabled=!uiState.petOn;
+}
+document.getElementById('setBtn').onclick=()=>{ syncUIControls(); uiMask.classList.add('show'); const w=uiMask.querySelector('.setwin'); if(w) w.scrollTop=0; loadFishTone(); loadTTS(); };
+swPet.onchange=()=>{ uiState.petOn=swPet.checked; saveUI(); syncUIControls(); };
+swBubble.onchange=()=>{ uiState.bubbleOn=swBubble.checked; saveUI(); };
+swFx.onchange=()=>{ uiState.fxOn=swFx.checked; saveUI(); };
+rgScale.oninput=()=>{
+  uiState.petScale=Math.max(.6,Math.min(1.6,parseInt(rgScale.value,10)/100));
+  scaleVal.textContent=Math.round(uiState.petScale*100)+'%';
+  applyUI();
+};
+rgScale.onchange=()=>saveUI();
+document.getElementById('uiReset').onclick=()=>{ uiState=Object.assign({},UI_DEFAULT); saveUI(); syncUIControls(); };
+document.getElementById('uiDone').onclick=()=>uiMask.classList.remove('show');
+uiMask.addEventListener('click',e=>{ if(e.target===uiMask) uiMask.classList.remove('show'); });
+// 程序设置标签页切换
+document.querySelectorAll('.uitab').forEach(tab=>{
+  tab.onclick=()=>{
+    document.querySelectorAll('.uitab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const name=tab.dataset.tab;
+    document.querySelectorAll('.uitab-panel').forEach(p=>{
+      p.style.display=(p.dataset.panel===name)?'':'none';
+    });
+    const win=tab.closest('.setwin');
+    if(win) win.scrollTop=0;
+  };
+});
+
+/* ---- 人味插件 fish-tone 设置 ---- */
+const ftEls={
+  enabled:document.getElementById('ftEnabled'),
+  strength:document.getElementById('ftStrength'),
+  grammar:document.getElementById('ftGrammar'),
+  marks:document.getElementById('ftMarks'),
+  seed:document.getElementById('ftSeed'),
+  flavorEnabled:document.getElementById('ftFlavorEnabled'),
+  flavorMode:document.getElementById('ftFlavorMode'),
+  flavorRate:document.getElementById('ftFlavorRate'),
+  flavorSeed:document.getElementById('ftFlavorSeed'),
+};
+async function loadFishTone(){
+  try{
+    const r=await fetch(QQBOT_API+'/api/fish-tone');
+    const d=await r.json();
+    ftEls.enabled.checked=!!d.main.enabled;
+    ftEls.strength.value=d.main.strength||'light';
+    ftEls.grammar.checked=!!d.main.grammar;
+    ftEls.marks.value=d.main.marks||'light';
+    ftEls.seed.value=d.main.seed??7;
+    ftEls.flavorEnabled.checked=!!d.flavor.enabled;
+    ftEls.flavorMode.value=d.flavor.mode||'cute';
+    ftEls.flavorRate.value=d.flavor.rate||'low';
+    ftEls.flavorSeed.value=d.flavor.seed??7;
+  }catch(e){ /* 桥接没开时静默 */ }
+  loadFishStyle();
+}
+async function loadFishStyle(){
+  try{
+    const r=await fetch(QQBOT_API+'/api/fish-tone/style');
+    const d=await r.json();
+    const info=document.getElementById('ftStyleInfo');
+    const row=document.getElementById('ftStyleDetailRow');
+    const det=document.getElementById('ftStyleDetail');
+    if(!d.ok||!d.samples){ info.textContent='还没学到东西（跟机器人聊几句就有了）'; row.style.display='none'; return; }
+    info.textContent=`已学 ${d.samples} 条 · 平均 ${d.avgLen} 字/条`+(d.learning?'':'（再聊几句开始生效）');
+    const lines=[];
+    if(d.words&&d.words.length) lines.push('常用词：'+d.words.map(w=>`${w.k}×${w.v}`).join('、'));
+    if(d.particles&&d.particles.length) lines.push('句尾爱用：'+d.particles.map(p=>`「${p.k}」×${p.v}`).join('、'));
+    if(d.recent&&d.recent.length) lines.push('最近原话：'+d.recent.slice(-3).map(e=>'「'+e+'」').join(' '));
+    if(d.updatedAt) lines.push('更新于 '+String(d.updatedAt).replace('T',' ').slice(0,19));
+    det.textContent=lines.join('\n')||'—';
+    row.style.display=lines.length?'':'none';
+  }catch(e){ /* 桥接没开时静默 */ }
+}
+document.getElementById('ftStyleReset').onclick=async ()=>{
+  try{
+    await fetch(QQBOT_API+'/api/fish-tone/style',{method:'POST'});
+    loadFishStyle();
+  }catch(e){ /* 桥接没开时静默 */ }
+};
+document.getElementById('ftSave').onclick=async ()=>{
+  const btn=document.getElementById('ftSave');
+  const old=btn.textContent;
+  btn.textContent='保存中…'; btn.disabled=true;
+  try{
+    const body={
+      main:{
+        enabled:ftEls.enabled.checked,
+        strength:ftEls.strength.value,
+        grammar:ftEls.grammar.checked,
+        marks:ftEls.marks.value,
+        seed:parseInt(ftEls.seed.value,10)||7,
+      },
+      flavor:{
+        enabled:ftEls.flavorEnabled.checked,
+        mode:ftEls.flavorMode.value,
+        rate:ftEls.flavorRate.value,
+        seed:parseInt(ftEls.flavorSeed.value,10)||7,
+      },
+    };
+    const r=await fetch(QQBOT_API+'/api/fish-tone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    btn.textContent=d.restarting?'✔ 已保存，机器人重启中…':'✔ 已保存';
+    setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2200);
+  }catch(e){
+    btn.textContent='✗ 保存失败（桥接未启动？）';
+    setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2200);
+  }
+};
+
+/* ============ 🔊 语音合成（双引擎：Edge-TTS / ChatTTS） ============ */
+const ttsEl={
+  enabled:document.getElementById('ttsEnabled'),
+  status:document.getElementById('ttsStatus'),
+  autoPlay:document.getElementById('ttsAutoPlay'),
+  engine:document.getElementById('ttsEngine'),
+  voice:document.getElementById('ttsVoice'),
+  voiceDesc:document.getElementById('ttsVoiceDesc'),
+  preview:document.getElementById('ttsPreview'),
+  temp:document.getElementById('ttsTemp'),
+  tempVal:document.getElementById('ttsTempVal'),
+  cloneBtn:document.getElementById('ttsCloneBtn'),
+  cloneFile:document.getElementById('ttsCloneFile'),
+  cloneSection:document.getElementById('chatttsCloneSection'),
+  cloneRow:document.getElementById('chatttsCloneRow'),
+  hint:document.getElementById('ttsHint'),
+  audio:document.getElementById('ttsAudio'),
+};
+let _ttsVoices=[], _ttsBlobUrls=[];
+
+function getTtsApi(){ return uiState.ttsEngine==='edge' ? '/api/tts2' : '/api/tts'; }
+
+async function loadTTS(){
+  // 控件先显示持久化值
+  ttsEl.enabled.checked=!!uiState.ttsEnabled;
+  ttsEl.autoPlay.checked=!!uiState.ttsAutoPlay;
+  ttsEl.engine.value=uiState.ttsEngine||'edge';
+  ttsEl.temp.value=uiState.ttsTemp??0.3;
+  ttsEl.tempVal.textContent=(uiState.ttsTemp??0.3).toFixed(2);
+  ttsEl.voice.value=uiState.ttsVoice||'dafy';
+  // 根据引擎显示/隐藏克隆区域
+  const isEdge = (uiState.ttsEngine||'edge')==='edge';
+  ttsEl.cloneSection.style.display=isEdge?'none':'block';
+  ttsEl.cloneRow.style.display=isEdge?'none':'flex';
+  ttsEl.hint.textContent=isEdge
+    ? '⚡ Edge-TTS：联网使用，微软官方音色，合成速度极快（~1秒）。'
+    : '🐢 ChatTTS：离线 CPU 推理，音色丰富但较慢（~30-60秒/句）。';
+  // 查服务状态
+  try{
+    const sr=await fetch(QQBOT_API+getTtsApi()+'/status');
+    const sd=await sr.json();
+    if(!sd.ok){ ttsEl.status.textContent='不可用'; ttsEl.status.style.color='#ff8080'; return; }
+    if(!sd.installed){ ttsEl.status.textContent='未安装'; ttsEl.status.style.color='#ff8080'; return; }
+    ttsEl.status.textContent=sd.running?'服务运行中':'服务未启动（点击开启后自动加载）';
+    ttsEl.status.style.color=sd.running?'#7effa5':'#ffd680';
+  }catch(e){
+    ttsEl.status.textContent='桥接未启动'; ttsEl.status.style.color='#ff8080';
+  }
+  // 拉音色列表（静默失败）
+  try{
+    const vr=await fetch(QQBOT_API+getTtsApi()+'/voices');
+    const vd=await vr.json();
+    if(vd.ok&&vd.voices?.length){
+      _ttsVoices=vd.voices;
+      ttsEl.voice.innerHTML='';
+      vd.voices.forEach(v=>{
+        const o=document.createElement('option');
+        o.value=v.id; o.textContent=v.name+(v.custom?' 🧪':'');
+        ttsEl.voice.appendChild(o);
+      });
+      // 匹配之前选的
+      if(ttsEl.voice.querySelector(`option[value="${uiState.ttsVoice}"]`)){
+        ttsEl.voice.value=uiState.ttsVoice;
+      }
+      updateVoiceDesc();
+    }
+  }catch(e){}
+}
+function updateVoiceDesc(){
+  const v=_ttsVoices.find(x=>x.id===ttsEl.voice.value);
+  ttsEl.voiceDesc.textContent=v?v.desc||v.name:'—';
+}
+ttsEl.engine.onchange=()=>{ uiState.ttsEngine=ttsEl.engine.value; saveUI(); loadTTS(); };
+ttsEl.voice.onchange=()=>{ uiState.ttsVoice=ttsEl.voice.value; saveUI(); updateVoiceDesc(); };
+ttsEl.temp.oninput=()=>{ ttsEl.tempVal.textContent=parseFloat(ttsEl.temp.value).toFixed(2); uiState.ttsTemp=parseFloat(ttsEl.temp.value); saveUI(); };
+ttsEl.enabled.onchange=async ()=>{
+  uiState.ttsEnabled=ttsEl.enabled.checked; saveUI();
+  if(ttsEl.enabled.checked){
+    try{ await fetch(QQBOT_API+getTtsApi()+'/start',{method:'POST'}); loadTTS(); }catch(e){}
+  }
+};
+ttsEl.autoPlay.onchange=()=>{ uiState.ttsAutoPlay=ttsEl.autoPlay.checked; saveUI(); };
+ttsEl.preview.onclick=async ()=>{
+  const btn=ttsEl.preview; const old=btn.textContent;
+  btn.textContent='合成中…'; btn.disabled=true;
+  try{
+    const url=await synthesize('你好呀～我是大肥鱼，穿女仆装的人鱼小精灵！', ttsEl.voice.value, parseFloat(ttsEl.temp.value));
+    playTTS(url);
+    btn.textContent='▶ 再听一次'; btn.disabled=false;
+    setTimeout(()=>{ btn.textContent=old; },3000);
+  }catch(e){
+    btn.textContent='✗ 失败: '+(e.message||e).slice(0,16); btn.disabled=false;
+    setTimeout(()=>{ btn.textContent=old; },2500);
+  }
+};
+ttsEl.cloneBtn.onclick=()=> ttsEl.cloneFile.click();
+ttsEl.cloneFile.onchange=async ()=>{
+  const f=ttsEl.cloneFile.files?.[0]; if(!f) return;
+  const btn=ttsEl.cloneBtn; const old=btn.textContent;
+  btn.textContent='上传合成中…'; btn.disabled=true;
+  try{
+    const fd=new FormData(); fd.append('file',f); fd.append('name',f.name.replace(/\.[^.]+$/,''));
+    const r=await fetch(QQBOT_API+'/api/tts/clone',{method:'POST',body:fd});
+    const d=await r.json();
+    if(d.ok){
+      btn.textContent='✓ 已生成新音色: '+d.voiceId.slice(0,6);
+      loadTTS();
+    }else{
+      btn.textContent='✗ '+JSON.stringify(d).slice(0,30);
+    }
+  }catch(e){
+    btn.textContent='✗ 克隆失败';
+  }
+  setTimeout(()=>{ btn.textContent=old; btn.disabled=false; ttsEl.cloneFile.value=''; },3000);
+};
+
+/** 核心合成：返回音频的 ObjectURL（调用方负责 URL.revokeObjectURL 清理） */
+async function synthesize(text, voiceId, temperature){
+  if(!text||!text.trim()) throw new Error('文本为空');
+  const isEdge = (uiState.ttsEngine||'edge')==='edge';
+  const api = getTtsApi();
+  let body, headers={'Content-Type':'application/json'};
+  if(isEdge){
+    body=JSON.stringify({ text: text.trim(), voice: voiceId||uiState.ttsVoice||'xiaoxiao', rate:'+0%', pitch:'+0Hz' });
+  }else{
+    body=JSON.stringify({ text: text.trim(), voiceId: voiceId||uiState.ttsVoice||'dafy', temperature: temperature??(uiState.ttsTemp??0.3) });
+  }
+  const r=await fetch(QQBOT_API+api+(isEdge?'/synthesize_json':'/synthesize'),{ method:'POST', headers, body });
+  if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||r.statusText); }
+  const blob=await r.blob();
+  const url=URL.createObjectURL(blob);
+  _ttsBlobUrls.push(url);
+  if(_ttsBlobUrls.length>5){ const old=_ttsBlobUrls.shift(); try{ URL.revokeObjectURL(old); }catch{} }
+  return url;
+}
+function playTTS(url){
+  const a=ttsEl.audio;
+  a.pause(); a.src=url; a.play().catch(()=>{});
+}
+/** 主入口：让大肥鱼说一句话（带自动重试启动服务） */
+async function speak(text){
+  if(!uiState.ttsEnabled) return;
+  try{
+    const url=await synthesize(text);
+    playTTS(url);
+  }catch(e){
+    // 服务没开？自动启动一次
+    try{ await fetch(QQBOT_API+getTtsApi()+'/start',{method:'POST'}); }catch{}
+    setTimeout(()=>speak(text), 3000); // Edge-TTS 启动快，3 秒重试
+  }
+}
+/** AI 回复自动播放 hook（由 chat() 在回复完成后调用） */
+function speakOnBotReply(txt){
+  if(!uiState.ttsAutoPlay) return;
+  if(!txt||txt.length<4||txt.length>500) return;  // 太短太长跳过
+  if(txt.startsWith('（')&&txt.endsWith('）')) return;  // 系统消息跳过
+  // 清理 markdown 标记后再播
+  const clean=txt.replace(/[#*_`>~\-]/g,'').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1').trim();
+  if(clean.length>=3) speak(clean);
+}
+
+/* ---- 定时消息管理 ---- */
+const schedMask=document.getElementById('schedMask');
+const schedListEl=document.getElementById('schedList');
+const schName=document.getElementById('schName');
+const schType=document.getElementById('schType');
+const schTarget=document.getElementById('schTarget');
+const schInterval=document.getElementById('schInterval');
+const schContent=document.getElementById('schContent');
+const schEnabled=document.getElementById('schEnabled');
+function fmtTime(iso){
+  if(!iso) return '—';
+  try{
+    const d=new Date(iso);
+    const pad=(n)=>String(n).padStart(2,'0');
+    return `${d.getMonth()+1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }catch{ return iso; }
+}
+function fmtTarget(t){ return t.length>16 ? t.slice(0,16)+'…' : t; }
+async function loadSched(){
+  try{
+    const r=await fetch(QQBOT_API+'/api/scheduled-tasks');
+    const d=await r.json();
+    const tasks=d.tasks||[];
+    if(!tasks.length){ schedListEl.innerHTML='<div class="fs-empty">暂无定时任务，点下方「新增」添加</div>'; return; }
+    schedListEl.innerHTML=tasks.map(t=>`
+      <div class="sched-item" data-id="${t.id}">
+        <div class="sh">
+          <b>${t.name||'未命名'}</b>
+          <span class="sched-tag ${t.targetType}">${t.targetType==='group'?'群聊':'私聊'}</span>
+          <label class="sw"><input type="checkbox" class="sch-enable" ${t.enabled?'checked':''}><i></i></label>
+        </div>
+        <div class="sd">→ ${fmtTarget(t.targetId)} · 每 ${t.intervalMinutes} 分钟</div>
+        <div class="sd sch-win">🕒 发送时段：${String(t.startHour??8).padStart(2,'0')}:00 ～ ${String(t.endHour??23).padStart(2,'0')}:00 ${(t.startHour??8)===(t.endHour??23)?'(全天)':''}</div>
+        <div class="sd">${(t.content||'').replace(/</g,'&lt;').slice(0,120)}</div>
+        <div class="sf">
+          <span>上次：${fmtTime(t.lastRun)}</span>
+          <span>下次：${fmtTime(t.nextRun)}</span>
+          <span class="spacer"></span>
+          <button class="sch-run">▶ 立即发送</button>
+          <button class="sch-del danger">✕ 删除</button>
+        </div>
+      </div>`).join('');
+    schedListEl.querySelectorAll('.sched-item').forEach(el=>{
+      const id=el.dataset.id;
+      el.querySelector('.sch-enable').onchange=async(e)=>{
+        await fetch(QQBOT_API+'/api/scheduled-tasks/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})});
+      };
+      el.querySelector('.sch-run').onclick=async()=>{
+        const btn=el.querySelector('.sch-run'); const old=btn.textContent;
+        btn.textContent='发送中…'; btn.disabled=true;
+        try{
+          const r=await fetch(QQBOT_API+'/api/scheduled-tasks/'+id+'/run',{method:'POST'});
+          const d=await r.json();
+          btn.textContent=d.ok?'✔ 已发送':'✗ 失败';
+        }catch{ btn.textContent='✗ 网络错误'; }
+        setTimeout(()=>{ btn.textContent=old; btn.disabled=false; loadSched(); },1500);
+      };
+      el.querySelector('.sch-del').onclick=async()=>{
+        if(!confirm('删除这个定时任务？')) return;
+        await fetch(QQBOT_API+'/api/scheduled-tasks/'+id,{method:'DELETE'});
+        loadSched();
+      };
+    });
+  }catch(e){ schedListEl.innerHTML='<div class="fs-empty">无法加载（桥接未启动？）</div>'; }
+}
+document.getElementById('openSched').onclick=()=>{ loadSched(); schedMask.classList.add('show'); };
+document.getElementById('schClose').onclick=()=>schedMask.classList.remove('show');
+schedMask.addEventListener('click',e=>{ if(e.target===schedMask) schedMask.classList.remove('show'); });
+document.getElementById('schAdd').onclick=async()=>{
+  const name=schName.value.trim()||'未命名任务';
+  const targetId=schTarget.value.trim();
+  const content=schContent.value.trim();
+  const interval=parseInt(schInterval.value,10)||60;
+  const startHour=parseInt(document.getElementById('schStartHour').value,10);
+  const endHour=parseInt(document.getElementById('schEndHour').value,10);
+  if(!targetId){ alert('请填写目标 openid / group_openid'); return; }
+  if(!content){ alert('请填写消息内容'); return; }
+  const btn=document.getElementById('schAdd');
+  btn.disabled=true; btn.textContent='添加中…';
+  try{
+    await fetch(QQBOT_API+'/api/scheduled-tasks',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,targetType:schType.value,targetId,content,intervalMinutes:interval,enabled:schEnabled.checked,startHour,endHour})});
+    schName.value=''; schTarget.value=''; schContent.value=''; schInterval.value=60; schEnabled.checked=true;
+    document.getElementById('schStartHour').value=8; document.getElementById('schEndHour').value=23;
+    loadSched();
+  }catch(e){ alert('添加失败：'+e.message); }
+  btn.disabled=false; btn.textContent='＋ 新增任务';
+};
+
+/* ---- Obsidian 插件库交互 ---- */
+const pluginMask=document.getElementById('pluginMask');
+const pluginListEl=document.getElementById('pluginList');
+const pluginSearchEl=document.getElementById('pluginSearch');
+const pluginStatusEl=document.getElementById('pluginStatus');
+const pluginCacheInfoEl=document.getElementById('pluginCacheInfo');
+const PLUGIN_PAGE=30;
+let pluginView=[], pluginShown=0;
+
+function pluginStatus(text,isErr){
+  if(!pluginStatusEl) return;
+  pluginStatusEl.textContent=text;
+  pluginStatusEl.style.color=isErr?'#ff8fa5':'';
+}
+function pluginRenderMore(){
+  if(pluginShown>=pluginView.length) return;
+  const end=Math.min(pluginShown+PLUGIN_PAGE,pluginView.length);
+  const frag=document.createDocumentFragment();
+  for(let i=pluginShown;i<end;i++){
+    const p=pluginView[i];
+    const el=document.createElement('div');
+    el.className='pitem';
+    el.innerHTML='<div class="ph"><b></b><span class="pa"></span></div><div class="pd"></div><a class="pl" target="_blank" rel="noopener"></a>';
+    el.querySelector('.ph b').textContent=p.name;
+    el.querySelector('.pa').textContent=p.author;
+    el.querySelector('.pd').textContent=p.desc;
+    const a=el.querySelector('.pl');
+    a.href='https://github.com/'+p.repo;
+    a.textContent='GitHub · '+p.repo;
+    frag.appendChild(el);
+  }
+  pluginShown=end;
+  const old=document.getElementById('pluginMore');
+  if(old) old.remove();
+  pluginListEl.appendChild(frag);
+  if(pluginShown<pluginView.length){
+    const more=document.createElement('button');
+    more.id='pluginMore';
+    more.className='btn ghost';
+    more.textContent=`加载更多（${pluginShown}/${pluginView.length}）`;
+    more.style.margin='4px 0';
+    more.onclick=pluginRenderMore;
+    pluginListEl.appendChild(more);
+  }
+}
+function pluginRender(){
+  pluginView=filterPlugins(pluginSearchEl.value);
+  pluginShown=0;
+  pluginListEl.innerHTML='';
+  if(!pluginView.length){
+    pluginListEl.innerHTML='<div class="fs-empty">没有匹配的插件</div>';
+    return;
+  }
+  pluginRenderMore();
+}
+async function openPluginLib(){
+  pluginMask.classList.add('show');
+  pluginSearchEl.value='';
+  pluginListEl.innerHTML='<div class="fs-empty">加载中…</div>';
+  pluginStatus(pluginIndex?'读取本地缓存…':'首次加载，正在下载插件目录（约 3 MB）…');
+  try{
+    await ensurePluginIndex(false);
+    pluginStatus(`共 ${pluginIndex.length} 个插件 · 来源 obsidian-releases · 已本地缓存`);
+    pluginCacheInfoEl.textContent=`已缓存 ${pluginIndex.length} 个插件`;
+    pluginRender();
+  }catch(e){
+    pluginStatus('加载失败：'+e.message+'（可点「刷新目录」重试）',true);
+    pluginListEl.innerHTML='<div class="fs-empty">插件目录加载失败，请检查网络后重试</div>';
+  }
+}
+document.getElementById('openPluginLib').onclick=openPluginLib;
+document.getElementById('pluginClose').onclick=()=>pluginMask.classList.remove('show');
+pluginMask.addEventListener('click',e=>{ if(e.target===pluginMask) pluginMask.classList.remove('show'); });
+let pluginSearchTimer=null;
+pluginSearchEl.addEventListener('input',()=>{
+  clearTimeout(pluginSearchTimer);
+  pluginSearchTimer=setTimeout(pluginRender,200);
+});
+document.getElementById('pluginRefresh').onclick=async()=>{
+  pluginStatus('正在刷新插件目录…');
+  try{
+    await ensurePluginIndex(true);
+    pluginStatus(`共 ${pluginIndex.length} 个插件 · 已更新`);
+    pluginCacheInfoEl.textContent=`已缓存 ${pluginIndex.length} 个插件`;
+    pluginRender();
+  }catch(e){ pluginStatus('刷新失败：'+e.message,true); }
+};
+
+/* ---- QQ 机器人（本地控制服务 127.0.0.1:18902） ---- */
+const QQBOT_API='http://127.0.0.1:18902';
+const qqbotMask=document.getElementById('qqbotMask');
+const qqbotStatusEl=document.getElementById('qqbotStatus');
+const qqbotQrImg=document.getElementById('qqbotQrImg');
+const qqbotQrTip=document.getElementById('qqbotQrTip');
+const qqbotC2CEl=document.getElementById('qqbotC2C');
+const qqbotGroupEl=document.getElementById('qqbotGroup');
+const qqbotToggle=document.getElementById('qqbotToggle');
+let qqbotRunning=false, qqbotTimer=null, qqbotBusy=false;
+
+// 大肥鱼主动发的消息也同步到这个对话舱（首次只记基线，不补发历史）
+let lastAutoMsgAt='';
+let autoMsgBaseline=false;
+setInterval(async()=>{
+  try{
+    const r=await fetch(QQBOT_API+'/api/status',{cache:'no-store'});
+    if(!r.ok) return;
+    const s=await r.json();
+    const st=(s.proactive&&s.proactive.state)||{};
+    if(!st.lastSentAt||!st.lastText) return;
+    if(!autoMsgBaseline){ lastAutoMsgAt=st.lastSentAt; autoMsgBaseline=true; return; }
+    if(st.lastSentAt===lastAutoMsgAt) return;
+    lastAutoMsgAt=st.lastSentAt;
+    appendMsg('bot',st.lastText);
+    addTL('ok','大肥鱼主动发来一条消息','auto');
+  }catch(e){}
+},60000);
+
+function qqbotStatus(text,isErr){
+  qqbotStatusEl.textContent=text;
+  qqbotStatusEl.style.color=isErr?'#ff8fa5':'#7effa5';
+}
+async function qqbotApi(path,opts,timeoutMs){
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),timeoutMs||2500);
+  try{
+    const r=await fetch(QQBOT_API+path,Object.assign({cache:'no-store',signal:ctrl.signal},opts||{}));
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  }finally{ clearTimeout(timer); }
+}
+function qqbotRender(s){
+  qqbotRunning=!!s.running;
+  qqbotToggle.textContent=qqbotRunning?'⏸ 停止机器人':'▶ 启动机器人';
+  let st;
+  if(s.bound) st='● 已连接 QQ'+(s.appId?' · AppID '+s.appId:'');
+  else if(s.running&&s.qr) st='● 请用手机 QQ 扫码绑定';
+  else if(s.running&&s.hasCred) st='● 已启动 · 正在连接 QQ…';
+  else if(s.running) st='● 已启动 · 二维码加载中…';
+  else st='○ 未启动';
+  if(s.model) st+=' · 模型 '+s.model;
+  if(typeof s.memCount==='number') st+=' · 记忆 '+s.memCount+' 条';
+  qqbotStatus(st,false);
+  if(s.qr){
+    qqbotQrImg.src=s.qr; qqbotQrImg.classList.add('show');
+    qqbotQrTip.textContent='用手机 QQ 扫码绑定（成功后自动消失）';
+  }else{
+    qqbotQrImg.classList.remove('show'); qqbotQrImg.removeAttribute('src');
+    qqbotQrTip.textContent=s.bound?'已绑定，无需扫码':'启动后显示二维码';
+  }
+  if(document.activeElement!==qqbotC2CEl) qqbotC2CEl.value=(s.c2c||[]).join('\n');
+  if(document.activeElement!==qqbotGroupEl) qqbotGroupEl.value=(s.group||[]).join('\n');
+  const ob=document.getElementById('qqbotOpenBind');
+  if(ob) ob.style.display=(s.running&&!s.qr)?'inline':'none';
+  paRender(s);
+}
+
+/* ---- 主动发言设置 ---- */
+const paBox=document.querySelector('.pa-box');
+const paEnabled=document.getElementById('paEnabled');
+const paInterval=document.getElementById('paInterval');
+const paGap=document.getElementById('paGap');
+const paDaily=document.getElementById('paDaily');
+const paStart=document.getElementById('paStart');
+const paEnd=document.getElementById('paEnd');
+const paTargetType=document.getElementById('paTargetType');
+const paTargetId=document.getElementById('paTargetId');
+const paFallback=document.getElementById('paFallback');
+const paHint=document.getElementById('paHint');
+const paStateEl=document.getElementById('paState');
+const paFoot=document.getElementById('paFoot');
+let paFilled=false, paLastStatus=null;
+
+function paSyncTargets(s,c){
+  const list=((c.targetType==='group')?(s.group||[]):(s.c2c||[]));
+  const cur=c.targetId||'';
+  const sig=list.join('|')+'#'+cur;
+  if(paTargetId.dataset.sig===sig) return;
+  paTargetId.dataset.sig=sig;
+  paTargetId.innerHTML='<option value="">用白名单第一个</option>'+
+    list.map(v=>'<option value="'+String(v).replace(/"/g,'&quot;')+'">'+v+'</option>').join('');
+  paTargetId.value=cur;
+}
+function paRender(s){
+  paLastStatus=s;
+  const p=(s&&s.proactive)||{};
+  const c=p.cfg||{}, st=p.state||{};
+  paEnabled.checked=!!c.enabled;
+  if(paBox) paBox.classList.toggle('pa-on',!!c.enabled);
+  if(!paFilled){
+    paInterval.value=c.intervalMinutes!=null?c.intervalMinutes:60;
+    paGap.value=c.minGapMinutes!=null?c.minGapMinutes:180;
+    paDaily.value=c.dailyLimit!=null?c.dailyLimit:3;
+    paStart.value=c.startHour!=null?c.startHour:9;
+    paEnd.value=c.endHour!=null?c.endHour:23;
+    paTargetType.value=c.targetType||'c2c';
+    paFallback.value=(c.fallbackModels||[]).join(', ');
+    paHint.value=c.hint||'';
+    paFilled=true;
+  }
+  paSyncTargets(s,c);
+  paStateEl.textContent=!c.enabled?'未开启':('已开启 · 今日 '+(st.sentToday||0)+'/'+c.dailyLimit);
+  const bits=[];
+  bits.push('目标：'+(p.target||'无（白名单为空）'));
+  if(st.lastSentAt) bits.push('上次发言：'+new Date(st.lastSentAt).toLocaleString('zh-CN',{hour12:false}));
+  if(st.lastCheckAt) bits.push('上次判断：'+new Date(st.lastCheckAt).toLocaleString('zh-CN',{hour12:false}));
+  if(st.lastText) bits.push('上次内容：'+st.lastText);
+  if(st.lastError) bits.push('⚠ '+st.lastError);
+  paFoot.textContent=bits.join(' · ');
+}
+paTargetType.onchange=()=>{ if(paLastStatus) paSyncTargets(paLastStatus,{targetType:paTargetType.value,targetId:''}); };
+document.getElementById('paSave').onclick=async()=>{
+  const btn=document.getElementById('paSave');
+  btn.disabled=true;
+  try{
+    await qqbotApi('/api/proactive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      enabled:paEnabled.checked,
+      intervalMinutes:Number(paInterval.value),
+      minGapMinutes:Number(paGap.value),
+      dailyLimit:Number(paDaily.value),
+      startHour:Number(paStart.value),
+      endHour:Number(paEnd.value),
+      targetType:paTargetType.value,
+      targetId:paTargetId.value,
+      hint:paHint.value.trim(),
+      fallbackModels:paFallback.value.split(/[,，\n]+/).map(x=>x.trim()).filter(Boolean)
+    })},10000);
+    qqbotStatus('主动发言设置已保存'+(paEnabled.checked?'（已开启）':'（已关闭）'),false);
+    setTimeout(qqbotPoll,800);
+  }catch(e){ qqbotStatus('保存主动设置失败：'+e.message,true); }
+  finally{ btn.disabled=false; }
+};
+document.getElementById('paTest').onclick=async()=>{
+  const btn=document.getElementById('paTest');
+  btn.disabled=true; btn.textContent='判断中…';
+  qqbotStatus('正在让大肥鱼判断要不要说话…',false);
+  try{
+    const r=await qqbotApi('/api/proactive/test',{method:'POST'},90000);
+    if(r.sent) qqbotStatus('已主动发送：'+r.text,false);
+    else if(r.ok) qqbotStatus('这次没发：'+(r.skipped||'—')+(r.raw?'（模型：'+r.raw+'）':''),false);
+    else qqbotStatus('失败：'+(r.error||r.skipped||'未知'),true);
+    setTimeout(qqbotPoll,800);
+  }catch(e){ qqbotStatus('试一次失败：'+e.message,true); }
+  finally{ btn.disabled=false; btn.textContent='🧪 试一次'; }
+};
+
+async function qqbotPoll(){
+  if(qqbotBusy) return;
+  try{ const s=await qqbotApi('/api/status'); qqbotRender(s); }
+  catch(e){
+    qqbotRunning=false;
+    qqbotToggle.textContent='▶ 启动机器人';
+    qqbotStatus('控制服务未启动：请双击 qqbot\\bridge.cmd（安装版会开机自启）',true);
+    qqbotQrImg.classList.remove('show'); qqbotQrImg.removeAttribute('src');
+    qqbotQrTip.textContent='控制服务未启动';
+  }
+}
+function qqbotClose(){
+  qqbotMask.classList.remove('show');
+  clearInterval(qqbotTimer);
+}
+document.getElementById('qqbotBtn').onclick=()=>{
+  qqbotMask.classList.add('show');
+  qqbotPoll();
+  clearInterval(qqbotTimer);
+  qqbotTimer=setInterval(()=>{ if(qqbotMask.classList.contains('show')) qqbotPoll(); },2500);
+};
+document.getElementById('qqbotClose').onclick=qqbotClose;
+qqbotMask.addEventListener('click',e=>{ if(e.target===qqbotMask) qqbotClose(); });
+qqbotToggle.onclick=async()=>{
+  qqbotBusy=true;
+  try{
+    qqbotStatus(qqbotRunning?'正在停止…':'正在启动…',false);
+    await qqbotApi(qqbotRunning?'/api/stop':'/api/start',{method:'POST'});
+    setTimeout(()=>{ qqbotBusy=false; qqbotPoll(); },1500);
+  }catch(e){ qqbotBusy=false; qqbotStatus('操作失败：'+e.message,true); }
+};
+document.getElementById('qqbotSave').onclick=async()=>{
+  const c2c=qqbotC2CEl.value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const group=qqbotGroupEl.value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  try{
+    await qqbotApi('/api/whitelist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({c2c,group})});
+    qqbotStatus('白名单已保存'+(qqbotRunning?'，正在重启机器人…':''),false);
+    setTimeout(qqbotPoll,2000);
+  }catch(e){ qqbotStatus('保存失败：'+e.message,true); }
+};
+document.getElementById('qqbotRebind').onclick=async()=>{
+  if(!confirm('重新扫码会清除当前绑定并生成新二维码，确定继续？')) return;
+  qqbotBusy=true;
+  qqbotStatus('正在清除绑定并生成二维码…',false);
+  try{
+    await qqbotApi('/api/rebind',{method:'POST'});
+    setTimeout(()=>{ qqbotBusy=false; qqbotPoll(); },2500);
+  }catch(e){ qqbotBusy=false; qqbotStatus('操作失败：'+e.message,true); }
+};
+document.getElementById('qqbotMemSync').onclick=async()=>{
+  qqbotBusy=true;
+  try{
+    qqbotStatus('正在同步记忆…',false);
+    const r=await qqbotApi('/api/memory-sync',{method:'POST'});
+    qqbotStatus('记忆已同步 · 共 '+(r.memCount||0)+' 条'+(r.restarting?'，机器人重启中…':''),false);
+    setTimeout(()=>{ qqbotBusy=false; qqbotPoll(); },1800);
+  }catch(e){ qqbotBusy=false; qqbotStatus('同步失败：'+e.message,true); }
+};
+document.getElementById('qqbotOpenBind').onclick=async()=>{
+  try{
+    await qqbotApi('/api/open-bind',{method:'POST'});
+    qqbotStatus('已打开扫码窗口，请在窗口里用手机 QQ 扫码',false);
+  }catch(e){ qqbotStatus('操作失败：'+e.message,true); }
+};
+document.getElementById('qqbotOpenGroup').onclick=async()=>{
+  try{
+    await qqbotApi('/api/open-group',{method:'POST'});
+    qqbotStatus('群聊已临时开放，请在群里 @机器人 发送 /bot-me',false);
+    setTimeout(qqbotPoll,2500);
+  }catch(e){ qqbotStatus('操作失败：'+e.message,true); }
+};
+
+/* ---- 资源库（MCP 式文件能力 · exe 内置文件服务 127.0.0.1:18901） ---- */
+const FS='http://127.0.0.1:18901';
+const fsEls={
+  path:document.getElementById('fsPath'), crumb:document.getElementById('fsCrumb'),
+  list:document.getElementById('fsList'), view:document.getElementById('fsView'),
+  up:document.getElementById('fsUp'), pick:document.getElementById('fsPick'),
+};
+function fsStamp(){const n=new Date();const p=x=>String(x).padStart(2,'0');return `${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}_${p(n.getHours())}-${p(n.getMinutes())}-${p(n.getSeconds())}`;}
+function fmtSize(b){ b=b||0; if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function fsHint(html){ fsEls.list.innerHTML='<div class="fs-empty">'+html+'</div>'; }
+async function fsInit(){
+  try{
+    const r=await fetch(FS+'/api/ping'); if(!r.ok) throw new Error('HTTP '+r.status);
+    const rj=await (await fetch(FS+'/api/root')).json();
+    const root=rj.root||'';
+    if(root){ fsRootReady(root); fsGo(''); }
+    else{ fsEls.path.textContent='尚未选择资源文件夹 · 点上方「选择文件夹」'; fsEls.path.style.color='#ffd36b'; fsHint('还没有选定资源库文件夹<br>点右上角「📂 选择文件夹」开始～<br>AI 产出的文件也会自动存进去哦'); }
+  }catch(e){
+    fsEls.path.textContent='⚠ 文件服务未启动'; fsEls.path.style.color='#ff8fa5';
+    fsHint('重新打开「大肥鱼大屏.exe」即可恢复<br>点「📂 选择文件夹」选任意本地文件夹<br>AI 产出的文件会自动存进去');
+  }
+}
+function fsRootReady(root){ fsEls.path.textContent='📂 '+root; fsEls.path.style.color='#7effa5'; }
+async function fsGo(rel){
+  fsEls.view.style.display='none';
+  try{
+    const r=await fetch(`${FS}/api/list?path=${encodeURIComponent(rel||'')}`);
+    const j=await r.json();
+    if(j.needPick){ fsHint('资源库未设置<br>点右上角「📂 选择文件夹」'); return; }
+    if(j.err){ fsHint('读取失败：'+j.err); return; }
+    renderFs(j.path||'', j.parent||'', j.dirs||[], j.files||[]);
+  }catch(e){ fsHint('读取失败：'+e.message); }
+}
+function renderFs(path,parent,dirs,files){
+  fsEls.crumb.textContent='/'+path;
+  fsEls.up.style.visibility = path ? 'visible' : 'hidden';
+  if(!dirs.length && !files.length){ fsHint('（空文件夹）'); return; }
+  fsEls.list.innerHTML='';
+  dirs.forEach(d=>{
+    const row=document.createElement('div'); row.className='fs-row dir';
+    row.innerHTML=`<span class="ic">📁</span><span class="nm">${d.n}</span><span class="sz">${d.m||''}</span>`;
+    row.onclick=()=>fsGo(path?path+'/'+d.n:d.n);
+    fsEls.list.appendChild(row);
+  });
+  files.forEach(f=>{
+    const row=document.createElement('div'); row.className='fs-row';
+    row.innerHTML=`<span class="ic">📄</span><span class="nm">${f.n}</span><span class="sz">${fmtSize(f.s)}</span>`;
+    row.onclick=()=>fsOpen(path?path+'/'+f.n:f.n);
+    fsEls.list.appendChild(row);
+  });
+}
+async function fsOpen(rel){
+  try{
+    const j=await (await fetch(`${FS}/api/read?path=${encodeURIComponent(rel)}`)).json();
+    if(j.err){ addTL('err','读取失败：'+j.err); return; }
+    const vh=document.createElement('div'); vh.className='vh';
+    vh.innerHTML=`<b>${rel}</b>`;
+    const back=document.createElement('button'); back.className='pickbtn'; back.textContent='← 返回列表';
+    back.onclick=()=>fsEls.view.style.display='none';
+    vh.appendChild(back);
+    const vc=document.createElement('div'); vc.className='vc';
+    if(j.kind==='image') vc.innerHTML=`<img src="data:${j.mime};base64,${j.data}" alt="${j.name}">`;
+    else if(j.kind==='text') vc.textContent=j.data+(j.cut?'\n\n…（内容过长已截断）':'');
+    else if(j.kind==='bin') vc.textContent='（二进制文件 '+fmtSize(j.size)+'，暂不支持预览）';
+    fsEls.view.innerHTML=''; fsEls.view.appendChild(vh); fsEls.view.appendChild(vc);
+    fsEls.view.style.display='flex';
+  }catch(e){ addTL('err','读取文件失败：'+e.message); }
+}
+fsEls.pick.onclick=async()=>{
+  const btn=fsEls.pick, old=btn.textContent;
+  btn.textContent='⏳ 请在弹窗中选择…';
+  try{
+    const j=await (await fetch(FS+'/api/pick')).json();
+    if(j.root && !j.canceled){ fsRootReady(j.root); addTL('ok','资源库 → '+j.root); fsGo(''); }
+  }catch(e){ addTL('err','选择文件夹失败：'+e.message); }
+  btn.textContent=old;
+};
+fsEls.up.onclick=async()=>{
+  try{
+    const j=await (await fetch(`${FS}/api/list?path=${encodeURIComponent(fsEls.crumb.textContent.replace(/^\//,''))}`)).json();
+    if(j.parent!==undefined) fsGo(j.parent);
+  }catch(e){}
+};
+async function fsWrite(rel,content){
+  const r=await fetch(FS+'/api/write',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({relPath:rel,content:content})});
+  const j=await r.json();
+  if(j.err) throw new Error(j.err);
+  return j;
+}
+function addSaveBtn(wrap,txt){
+  if(!wrap) return;
+  const b=document.createElement('button'); b.className='msg-save'; b.textContent='💾 存入资源库';
+  b.onclick=async()=>{
+    if(b.classList.contains('done')) return;
+    b.textContent='⏳ 保存中…';
+    try{
+      const rel='AI产出/'+fsStamp()+'.txt';
+      await fsWrite(rel,txt);
+      b.classList.add('done'); b.textContent='✓ 已存入 AI产出/';
+      addTL('ok','💾 已存入资源库 '+rel);
+    }catch(e){ b.textContent='✗ 存档失败（'+e.message+'）'; setTimeout(()=>{b.classList.remove('done');b.textContent='💾 存入资源库';},2600); }
+  };
+  wrap.querySelector('.bubble').appendChild(b);
+}
+
+/* ============ Obsidian 插件目录（配置 + 缓存 + 搜索） ============ */
+// 官方仓库: https://github.com/obsidianmd/obsidian-releases
+// 优先走 jsDelivr CDN，失败自动回退 GitHub raw；结果本地缓存 24 小时
+const PLUGIN_SOURCES=[
+  'https://cdn.jsdelivr.net/gh/obsidianmd/obsidian-releases@master/community-plugins.json',
+  'https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-plugins.json'
+];
+const PLUGIN_CACHE_KEY='dafyPluginIndex';
+const PLUGIN_TTL=24*3600*1000;
+let pluginIndex=null, pluginIndexTs=0, pluginLoading=null;
+
+function pluginFromCache(){
+  try{
+    const raw=localStorage.getItem(PLUGIN_CACHE_KEY);
+    if(!raw) return false;
+    const obj=JSON.parse(raw);
+    if(!Array.isArray(obj.list)||!obj.list.length) return false;
+    pluginIndex=obj.list.map(a=>({id:a[0],name:a[1],author:a[2],desc:a[3],repo:a[4],
+      search:(a[1]+' '+a[2]+' '+a[3]).toLowerCase()}));
+    pluginIndexTs=obj.ts||0;
+    return true;
+  }catch(e){ return false; }
+}
+function pluginToCache(){
+  try{
+    localStorage.setItem(PLUGIN_CACHE_KEY,JSON.stringify({
+      ts:pluginIndexTs,
+      list:pluginIndex.map(p=>[p.id,p.name,p.author,p.desc,p.repo])
+    }));
+  }catch(e){ /* 超出配额时仅用内存缓存 */ }
+}
+async function fetchPluginIndex(){
+  let lastErr=null;
+  for(const url of PLUGIN_SOURCES){
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const arr=await r.json();
+      if(!Array.isArray(arr)||!arr.length) throw new Error('数据格式异常');
+      pluginIndex=arr.map(p=>({
+        id:p.id||'', name:p.name||p.id||'', author:p.author||'',
+        desc:p.description||'', repo:p.repo||'',
+        search:((p.name||'')+' '+(p.author||'')+' '+(p.description||'')).toLowerCase()
+      }));
+      pluginIndexTs=Date.now();
+      pluginToCache();
+      addTL('ok',`🧩 插件目录已更新 (${pluginIndex.length} 个)`,'plugin');
+      return pluginIndex;
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('插件目录获取失败');
+}
+async function ensurePluginIndex(force){
+  if(!force && pluginIndex && (Date.now()-pluginIndexTs)<PLUGIN_TTL) return pluginIndex;
+  if(!force && !pluginIndex) pluginFromCache();
+  if(!force && pluginIndex){
+    if((Date.now()-pluginIndexTs)>PLUGIN_TTL) fetchPluginIndex().catch(()=>{}); // 过期则后台静默刷新
+    return pluginIndex;
+  }
+  if(!pluginLoading){
+    pluginLoading=fetchPluginIndex().finally(()=>{ pluginLoading=null; });
+  }
+  return await pluginLoading;
+}
+function filterPlugins(keyword){
+  const q=(keyword||'').trim().toLowerCase();
+  if(!pluginIndex) return [];
+  if(!q) return pluginIndex;
+  return pluginIndex.filter(p=>p.search.includes(q));
+}
+function searchPlugins(keyword,limit){
+  const q=(keyword||'').trim().toLowerCase();
+  const max=Math.max(1,Math.min(20,limit||8));
+  if(!pluginIndex) return [];
+  if(!q) return pluginIndex.slice(0,max);
+  const scored=[];
+  for(const p of pluginIndex){
+    const nm=p.name.toLowerCase();
+    let s=0;
+    if(nm.startsWith(q)) s=5;
+    else if(nm.includes(q)) s=4;
+    else if(p.search.includes(q)) s=2;
+    if(s) scored.push({p,s});
+  }
+  scored.sort((a,b)=>b.s-a.s||a.p.name.localeCompare(b.p.name));
+  return scored.slice(0,max).map(x=>x.p);
+}
+
+/* ============ MCP 工具系统 ============ */
+// 工具定义：核心文件工具与 mcp-server/server.js 对应，
+// 另含前端增强工具（时间 / 系统信息 / 资源库搜索 / Obsidian 插件搜索）。
+// 前端直接通过文件服务 HTTP API 执行（等价于 MCP 工具调用），
+// 同时也可被外部 MCP 客户端通过 dafy-mcp server 调用。
+const MCP_TOOLS=[
+  {
+    name:'list_directory',
+    desc:'列出资源库中指定目录的文件和子文件夹',
+    params:{type:'object',properties:{path:{type:'string',description:'相对路径，留空为根目录'}},required:[]},
+    exec:async(a)=>{
+      const j=await(await fetch(`${FS}/api/list?path=${encodeURIComponent(a.path||'')}`)).json();
+      if(j.needPick) throw new Error('资源库未设置，请先在大屏中选择文件夹');
+      if(j.err) throw new Error(j.err);
+      const dirs=(j.dirs||[]).map(d=>'📁 '+d.n+(d.m?' ('+d.m+')':'')).join('\n');
+      const files=(j.files||[]).map(f=>'📄 '+f.n+(f.s!=null?'  '+fmtSize(f.s):'')).join('\n');
+      return `目录: /${j.path||''}\n`+([dirs,files].filter(Boolean).join('\n')||'（空文件夹）');
+    }
+  },
+  {
+    name:'read_file',
+    desc:'读取资源库中的文件内容（文本/图片/二进制）',
+    params:{type:'object',properties:{path:{type:'string',description:'相对路径，如 AI产出/笔记.md'}},required:['path']},
+    exec:async(a)=>{
+      if(!a.path) throw new Error('path 参数不能为空');
+      const j=await(await fetch(`${FS}/api/read?path=${encodeURIComponent(a.path)}`)).json();
+      if(j.err) throw new Error(j.err);
+      if(j.kind==='image') return `[图片] ${j.name} (${j.mime}, ${fmtSize(j.size)})`;
+      if(j.kind==='bin') return `[二进制] ${j.name} (${fmtSize(j.size)})`;
+      return (j.data||'')+(j.cut?'\n\n…（内容过长已截断）':'');
+    }
+  },
+  {
+    name:'write_file',
+    desc:'在资源库中新建文件（仅新建，不支持覆盖；父目录需已存在）',
+    params:{type:'object',properties:{path:{type:'string',description:'目标相对路径'},content:{type:'string',description:'文本内容'}},required:['path','content']},
+    exec:async(a)=>{
+      if(!a.path) throw new Error('path 参数不能为空');
+      // 安全校验：文件服务覆盖已有文件会崩溃，且不会自动创建父目录
+      const parent=a.path.includes('/')?a.path.slice(0,a.path.lastIndexOf('/')):'';
+      if(parent){
+        const dj=await(await fetch(`${FS}/api/list?path=${encodeURIComponent(parent)}`)).json();
+        if(dj.err||dj.needPick) throw new Error(`目标文件夹不存在: ${parent}（请先在资源库中创建该文件夹）`);
+      }
+      const chk=await(await fetch(`${FS}/api/read?path=${encodeURIComponent(a.path)}`)).json();
+      if(!chk.err) throw new Error(`文件已存在，为保护数据请换一个文件名: ${a.path}`);
+      const j=await fsWrite(a.path,a.content||'');
+      return `已写入: ${a.path}${j.size?' ('+fmtSize(j.size)+')':''}`;
+    }
+  },
+  {
+    name:'get_current_time',
+    desc:'获取当前日期、时间与时区（回答时间类问题前应先调用）',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      const now=new Date();
+      const s=now.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',weekday:'long',hour12:false});
+      return `当前时间: ${s}\n时区: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`;
+    }
+  },
+  {
+    name:'get_system_info',
+    desc:'获取大肥鱼版本、资源库根目录与运行环境信息',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      let root='未设置';
+      try{ const j=await(await fetch(FS+'/api/root')).json(); if(j.root) root=j.root; }catch(e){}
+      const c=aiConf();
+      return [
+        `大肥鱼版本: v${APP_VERSION}`,
+        `资源库根目录: ${root}`,
+        `AI 模式: ${srcLabel(c.mode)}`,
+        `当前模型: ${c.mode==='gw'?(curModel||'（未选择）'):(c.model||'（未选择）')}`,
+        `屏幕: ${screen.width}×${screen.height}`,
+        `语言: ${navigator.language}`,
+        `环境: ${navigator.userAgent}`
+      ].join('\n');
+    }
+  },
+  {
+    name:'search_files',
+    desc:'在资源库中按文件名或文本内容搜索（最多 3 层、300 个文件）',
+    params:{type:'object',properties:{
+      keyword:{type:'string',description:'搜索关键词（不区分大小写）'},
+      path:{type:'string',description:'起始相对路径，留空为根目录'},
+      content:{type:'boolean',description:'是否同时搜索文本内容，默认 false'}
+    },required:['keyword']},
+    exec:async(a)=>{
+      const kw=(a.keyword||'').trim().toLowerCase();
+      if(!kw) throw new Error('keyword 参数不能为空');
+      const base=a.path||'';
+      const hits=[]; let visited=0;
+      const MAXFILES=300, MAXDEPTH=3;
+      async function walk(rel,depth){
+        if(depth>MAXDEPTH||visited>=MAXFILES) return;
+        const j=await(await fetch(`${FS}/api/list?path=${encodeURIComponent(rel)}`)).json();
+        if(j.err) return;
+        for(const f of (j.files||[])){
+          if(visited>=MAXFILES) break;
+          visited++;
+          let hit=f.n.toLowerCase().includes(kw);
+          if(!hit&&a.content){
+            const ext=(f.n.split('.').pop()||'').toLowerCase();
+            if(TEXT_EXT.includes(ext)&&(f.s||0)<200*1024){
+              try{
+                const r=await(await fetch(`${FS}/api/read?path=${encodeURIComponent(rel?rel+'/'+f.n:f.n)}`)).json();
+                if(r.kind==='text'&&(r.data||'').toLowerCase().includes(kw)) hit=true;
+              }catch(e){}
+            }
+          }
+          if(hit) hits.push((rel?rel+'/':'')+f.n);
+        }
+        for(const d of (j.dirs||[])) await walk(rel?rel+'/'+d.n:d.n,depth+1);
+      }
+      await walk(base,0);
+      return hits.length
+        ? `找到 ${hits.length} 个匹配（已检查 ${visited} 个文件）:\n`+hits.map(h=>'📄 '+h).join('\n')
+        : `未找到匹配（已检查 ${visited} 个文件）`;
+    }
+  },
+  {
+    name:'search_plugins',
+    desc:'搜索 Obsidian 官方社区插件目录（9000+ 插件），按名称/作者/功能匹配，返回简介与 GitHub 地址',
+    params:{type:'object',properties:{
+      keyword:{type:'string',description:'关键词，如 日历、看板、翻译、AI'},
+      limit:{type:'number',description:'返回数量，默认 8，最大 20'}
+    },required:['keyword']},
+    exec:async(a)=>{
+      const kw=(a.keyword||'').trim();
+      if(!kw) throw new Error('keyword 参数不能为空');
+      await ensurePluginIndex(false);
+      const list=searchPlugins(kw,a.limit);
+      if(!list.length) return `未找到与「${kw}」匹配的 Obsidian 插件（共 ${pluginIndex.length} 个）`;
+      return `找到 ${list.length} 个相关插件（目录共 ${pluginIndex.length} 个）:\n`+
+        list.map((p,i)=>`${i+1}. ${p.name}（${p.author}）\n   ${p.desc}\n   https://github.com/${p.repo}`).join('\n');
+    }
+  },
+  {
+    name:'get_root',
+    desc:'获取当前资源库的根目录绝对路径',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      const j=await(await fetch(FS+'/api/root')).json();
+      return j.root?`资源库根目录: ${j.root}`:'尚未选择资源库文件夹';
+    }
+  },
+  {
+    name:'douyin_next_video',
+    desc:'刷下一条抖音视频，返回标题、作者、简介和热门评论。需要视频服务已启动，且在大屏「刷视频」面板里登录过抖音。',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      const j=await vidApi('/api/next',{});
+      if(!j.ok) throw new Error((j.needLogin?'需要先在大屏「刷视频」面板登录抖音：':'')+(j.reason||'刷视频失败'));
+      const v=j.video||{};
+      return [
+        `标题: ${v.title||'（未知）'}`,
+        v.author?`作者: ${v.author}`:'',
+        v.desc?`简介: ${String(v.desc).slice(0,300)}`:'',
+        (v.comments&&v.comments.length)?`热评:\n`+v.comments.slice(0,5).map(c=>'- '+c).join('\n'):''
+      ].filter(Boolean).join('\n');
+    }
+  },
+  {
+    name:'douyin_post_comment',
+    desc:'在当前抖音视频下发布一条真实评论（每 30 秒最多 1 条、每天最多 20 条；需要先登录抖音）。',
+    params:{type:'object',properties:{text:{type:'string',description:'评论内容，20 字左右，最多 60 字'}},required:['text']},
+    exec:async(a)=>{
+      const text=String(a.text||'').trim();
+      if(!text) throw new Error('评论内容不能为空');
+      const j=await vidApi('/api/comment',{text:text});
+      if(!j.ok) throw new Error(j.reason||'发布失败');
+      return `已发布评论: ${j.text}\n今日进度: ${j.count}/${j.limit}`;
+    }
+  }
+];
+const toolUseCount={};
+MCP_TOOLS.forEach(t=>toolUseCount[t.name]=0);
+
+function renderTools(){
+  const list=document.getElementById('toolList');
+  document.getElementById('toolCount').textContent=MCP_TOOLS.length;
+  list.innerHTML='';
+  MCP_TOOLS.forEach(t=>{
+    const el=document.createElement('div'); el.className='tool-item';
+    el.innerHTML=`<span class="tic"></span><span class="tnm">${t.name}</span><span class="tuse" id="tu-${t.name}">${toolUseCount[t.name]}</span>`;
+    el.title=t.desc;
+    list.appendChild(el);
+  });
+}
+function setToolBusy(name,busy){
+  document.querySelectorAll('#toolList .tool-item').forEach(it=>{
+    if(it.querySelector('.tnm').textContent===name) it.classList.toggle('busy',busy);
+  });
+}
+
+/** 执行单个工具调用，返回文本结果 */
+async function runTool(name,args){
+  const tool=MCP_TOOLS.find(t=>t.name===name);
+  if(!tool) return `错误: 未知工具 ${name}`;
+  setToolBusy(name,true);
+  try{
+    const r=await tool.exec(args||{});
+    toolUseCount[name]++;
+    const cnt=document.getElementById('tu-'+name); if(cnt) cnt.textContent=toolUseCount[name];
+    return r;
+  }catch(e){
+    return `错误: ${e.message}`;
+  }finally{
+    setToolBusy(name,false);
+  }
+}
+
+/** 构造发给 AI 的 tools 数组（OpenAI function calling 格式） */
+function buildApiTools(){
+  return MCP_TOOLS.map(t=>({
+    type:'function',
+    function:{name:t.name,description:t.desc,parameters:t.params}
+  }));
+}
+
+/** 在对话气泡中展示工具调用与结果 */
+function appendToolCall(wrap,name,args,result){
+  const tc=document.createElement('div'); tc.className='tool-call';
+  tc.innerHTML=`🔧 <span class="tc-name">${name}</span>(${JSON.stringify(args||{})})`;
+  wrap.querySelector('.bubble').appendChild(tc);
+  if(result!=null){
+    const tr=document.createElement('div'); tr.className='tool-result';
+    tr.textContent=String(result).slice(0,800);
+    wrap.querySelector('.bubble').appendChild(tr);
+  }
+  EL.chatLog.scrollTop=EL.chatLog.scrollHeight;
+}
+
+function readFileAsText(f){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsText(f); });
+}
+const TEXT_EXT=['txt','md','csv','json','js','ts','py','html','css','xml','yaml','yml','log','ini','conf','sh','bat','sql'];
+
+/* ============ 大肥鱼记忆系统 ============ */
+// 记忆持久化：优先写入文件服务（资源库可写目录），同时用 localStorage 兜底
+// 注：文件服务对 项目/ 目录有写入白名单限制，且不支持自动创建子目录，
+//     故记忆文件放在可写目录的扁平路径：Conversation_Records/dafy_memory.json
+const MEMORY_DIR='大肥鱼记忆';
+const MEMORY_FILE='Conversation_Records/dafy_memory.json';
+const MEMORY_LS_KEY='dafy_memory_facts';
+const HISTORY_LS_KEY='dafyChatHistory';
+const MAX_HISTORY=30;        // 对话历史保留条数
+const MAX_FACTS=80;          // 记忆条目上限（防词元爆炸）
+
+let memoryFacts=[];          // 持久化的用户记忆条目
+let chatHistory=[];          // 本次会话的对话历史 {role,content}
+let memoryLoaded=false;
+
+/** 读取记忆（localStorage 为主，文件备份兜底） */
+async function loadMemory(){
+  let loaded=false;
+  // 1. 优先读 localStorage（每次保存都会更新，是最新数据）
+  try{
+    const raw=localStorage.getItem(MEMORY_LS_KEY);
+    if(raw){
+      const arr=JSON.parse(raw);
+      if(Array.isArray(arr)&&arr.length){ memoryFacts=arr.slice(0,MAX_FACTS); loaded=true; }
+    }
+  }catch(e){}
+  // 2. 本地为空时，再读文件备份
+  if(!loaded){
+    try{
+      const j=await(await fetch(`${FS}/api/read?path=${encodeURIComponent(MEMORY_FILE)}`)).json();
+      if(!j.err && j.kind==='text' && j.data){
+        const obj=JSON.parse(j.data);
+        if(Array.isArray(obj.facts)){ memoryFacts=obj.facts.slice(0,MAX_FACTS); loaded=true; }
+      }
+    }catch(e){}
+  }
+  memoryLoaded=true;
+  addTL('ok',`🧠 记忆已加载 (${memoryFacts.length} 条)`,'memory');
+}
+
+/** 保存记忆（localStorage + 共享快照，供 QQ 机器人读取） */
+async function saveMemory(){
+  try{ localStorage.setItem(MEMORY_LS_KEY,JSON.stringify(memoryFacts)); }catch(e){}
+  try{
+    const rel='Conversation_Records/dafy_memory_'+fsStamp()+'.json';
+    await fsWrite(rel,JSON.stringify({facts:memoryFacts,updated:new Date().toISOString()},null,2));
+  }catch(e){ /* 文件服务不可用时忽略，localStorage 已保存 */ }
+}
+
+/** 对话历史持久化：重开程序后继续上一次对话 */
+function saveChatHistory(){
+  try{ localStorage.setItem(HISTORY_LS_KEY,JSON.stringify(chatHistory.slice(-MAX_HISTORY*2))); }catch(e){}
+}
+function loadChatHistory(){
+  try{
+    const arr=JSON.parse(localStorage.getItem(HISTORY_LS_KEY)||'[]');
+    chatHistory=Array.isArray(arr)
+      ? arr.filter(m=>m&&typeof m.content==='string'&&(m.role==='user'||m.role==='assistant')).slice(-MAX_HISTORY*2)
+      : [];
+  }catch(e){ chatHistory=[]; }
+}
+/** 记录一轮对话（同时持久化） */
+function pushChatTurn(userText,aiText){
+  chatHistory.push({role:'user',content:userText});
+  chatHistory.push({role:'assistant',content:aiText});
+  if(chatHistory.length>MAX_HISTORY*2) chatHistory=chatHistory.slice(-MAX_HISTORY*2);
+  saveChatHistory();
+}
+/** 启动时把上次对话渲染回聊天区 */
+function restoreChatLog(){
+  if(!chatHistory.length) return;
+  const div=document.createElement('div');
+  div.className='chat-divider';
+  div.textContent='—— 上次对话 ——';
+  EL.chatLog.appendChild(div);
+  for(const m of chatHistory){
+    if(m.role==='user') appendMsg('user',m.content);
+    else appendMsg('bot',m.content);
+  }
+  EL.chatLog.scrollTop=EL.chatLog.scrollHeight;
+}
+
+/** 添加一条记忆（自动去重） */
+function addMemoryFact(fact){
+  fact=fact.trim();
+  if(!fact||fact.length<2) return false;
+  // 去重：忽略完全相同或高度相似的
+  const exists=memoryFacts.some(f=>f===fact||f.includes(fact)||fact.includes(f));
+  if(exists) return false;
+  memoryFacts.unshift(fact);
+  if(memoryFacts.length>MAX_FACTS) memoryFacts=memoryFacts.slice(0,MAX_FACTS);
+  return true;
+}
+
+/** 把记忆转为 system prompt 文本 */
+function memoryContext(){
+  if(!memoryFacts.length) return '';
+  return '\n【关于用户的记忆】\n'+memoryFacts.map(f=>'- '+f).join('\n');
+}
+
+/** 大肥鱼人格 system prompt */
+const PERSONA=`你是「大肥鱼」，一只穿女仆装的人鱼小精灵 🐟。
+性格：活泼可爱、有点小傲娇、喜欢被摸头、爱吃零食。
+说话风格：口语化、带颜文字、偶尔用「～」「啦」「呢」等语气词。
+你生活在用户的电脑里，右下角是你的桌宠分身。
+`;
+
+/** 构建完整 system prompt（人格 + 记忆） */
+function buildSystemPrompt(){
+  return PERSONA+(memoryFacts.length?memoryContext():'')+`
+${memoryFacts.length?'\n注意：请自然地运用以上记忆与用户交流，不要逐条复述。如果对话中出现了关于用户的新信息（喜好、习惯、身份、重要事件等），请记在心里。':''}`;
+}
+
+/** 把对话历史加入 messages（最近 N 条，控制词元） */
+function pushHistory(messages){
+  // 取最近 MAX_HISTORY 条
+  const recent=chatHistory.slice(-MAX_HISTORY);
+  for(const m of recent){
+    messages.push(m);
+  }
+}
+
+/** 对话后提取记忆：让 AI 从本轮对话中抽取关于用户的新事实 */
+async function extractAndSaveMemory(userText,aiText){
+  if(!userText||!aiText) return;
+  if(!memoryLoaded) return;
+  // 只在有实质内容时提取（避免太频繁调用）
+  if(userText.length<4) return;
+  const c=aiConf();
+  const url = aiChatUrl(c);
+  const key = aiChatKey(c);
+  const model = aiChatModel(c);
+  const existing=memoryFacts.slice(0,20).map((f,i)=>`${i+1}. ${f}`).join('\n');
+  const extractPrompt=`请从以下对话中提取关于「用户」的新的、值得长期记住的事实（喜好、习惯、身份、工作、重要事件、偏好等）。
+已有记忆（不要重复）：
+${existing||'（暂无）'}
+
+用户说：${userText.slice(0,500)}
+大肥鱼回复：${aiText.slice(0,300)}
+
+请只输出新的记忆条目，每条一行，以 "- " 开头。如果没有新的值得记忆的信息，只输出 "无"。不要解释，不要输出其他内容。`;
+  try{
+    const r=await fetch(url,{
+      method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({model:model,messages:[{role:'user',content:extractPrompt}],stream:false,max_tokens:300,think:c.mode==='oll'?false:undefined})
+    });
+    if(!r.ok) return;
+    const j=await r.json();
+    const txt=(j.choices&&j.choices[0]&&j.choices[0].message.content)||'';
+    if(!txt||txt.trim()==='无') return;
+    const lines=txt.split('\n').map(l=>l.replace(/^[-•\d.\s]+/,'').trim()).filter(l=>l&&l.length>2);
+    let added=0;
+    for(const line of lines){
+      if(addMemoryFact(line)) added++;
+    }
+    if(added>0){
+      await saveMemory();
+      addTL('ok',`🧠 新增 ${added} 条记忆 (共 ${memoryFacts.length} 条)`,'memory');
+    }
+  }catch(e){ /* 记忆提取失败不影响主对话 */ }
+}
+
+/** 带工具调用的对话循环 */
+async function chat(prompt,files){
+  files=files||[];
+  // 展示用户消息（含附件）
+  appendMsg('user',prompt,files);
+  let ty=appendTyping();
+  const t0=performance.now(); stats.req++; EL.sReq.textContent=stats.req;
+  const c=aiConf();
+  const url = aiChatUrl(c);
+  const key = aiChatKey(c);
+  const model = aiChatModel(c);
+
+  // 构建用户消息内容（多模态：文本 + 图片 + 文件内容）
+  const content=[];
+  if(prompt) content.push({type:'text',text:prompt});
+  let fileDesc='';
+  for(const f of files){
+    if(f.isImage&&f.dataUrl){
+      content.push({type:'image_url',image_url:{url:f.dataUrl}});
+    }else{
+      // 非图片文件：文本文件读内容，其他只描述
+      const ext=(f.name.split('.').pop()||'').toLowerCase();
+      if(TEXT_EXT.includes(ext)&&f.size<500*1024){
+        try{
+          const txt=await readFileAsText(f.file);
+          content.push({type:'text',text:`\n--- 文件: ${f.name} (${fmtSize(f.size)}) ---\n${txt}\n--- 文件结束 ---`});
+        }catch(_){ fileDesc+=`\n[附件: ${f.name} (${fmtSize(f.size)})]`; }
+      }else{
+        fileDesc+=`\n[附件: ${f.name} (${fmtSize(f.size)})]`;
+      }
+    }
+  }
+  if(fileDesc) content.push({type:'text',text:fileDesc});
+  // 无内容时给个默认
+  if(!content.length) content.push({type:'text',text:'(发送了附件)'});
+
+  // 构建消息：system(人格+记忆) → 对话历史 → 当前用户消息
+  const messages=[{role:'system',content:buildSystemPrompt()}];
+  pushHistory(messages);
+  messages.push({role:'user',content});
+  let finalWrap=null;
+  const MAX_TOOL_ROUNDS=6;
+
+  try{
+    for(let round=0;round<MAX_TOOL_ROUNDS;round++){
+      const body={model:model,messages:messages,stream:false};
+      // 本机 Ollama 的 R1 模型默认会先"思考"，关掉直接回答，快很多
+      if(c.mode==='oll'){ body.think=false; body.max_tokens=400; }
+      // 只有网关模式下附带 tools（DeepSeek 官方也支持，统一附带）
+      body.tools=buildApiTools();
+      body.tool_choice='auto';
+
+      const r=await fetch(url,{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body:JSON.stringify(body)
+      });
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      const msg=j.choices&&j.choices[0]&&j.choices[0].message;
+      if(!msg) throw new Error('响应无 message');
+
+      // 情况 A: AI 要求调用工具
+      if(msg.tool_calls&&msg.tool_calls.length){
+        ty.remove();
+        if(!finalWrap){ finalWrap=appendMsg('bot',''); }
+        // 把 assistant 的 tool_calls 消息加入历史
+        messages.push({role:'assistant',content:msg.content||null,tool_calls:msg.tool_calls});
+        // 逐个执行工具
+        for(const tc of msg.tool_calls){
+          const fn=tc.function||{};
+          let args={};
+          try{ args=fn.arguments?JSON.parse(fn.arguments):{}; }catch(e){}
+          const result=await runTool(fn.name,args);
+          appendToolCall(finalWrap,fn.name,args,result);
+          addTL('ok',`🔧 工具调用 ${fn.name}`,'ok');
+          messages.push({role:'tool',tool_call_id:tc.id,content:String(result)});
+        }
+        // 继续循环，让 AI 根据工具结果生成最终回复
+        const moreTy=appendTyping();
+        // 把 typing 放在 finalWrap 后面
+        ty=moreTy;
+        continue;
+      }
+
+      // 情况 B: AI 返回文本回复
+      const txt=(msg.content||msg.reasoning_content)||'(空)';
+      ty.remove();
+      if(!finalWrap){ finalWrap=appendMsg('bot',txt); }
+      else{ finalWrap.querySelector('.bubble').appendChild(document.createTextNode(txt)); }
+      addSaveBtn(finalWrap,txt);
+
+      // 保存到对话历史（纯文本，持久化，重开可继续）
+      pushChatTurn(prompt,txt);
+      // 异步提取记忆（不阻塞用户）
+      extractAndSaveMemory(prompt,txt);
+
+      const tok=j.usage?.total_tokens||txt.length;
+      stats.tok+=tok; stats.ok++;
+      const dt=(performance.now()-t0)/1000; stats.sum+=dt;
+      EL.sTok.textContent=stats.tok; EL.tokPill.textContent='词元: '+stats.tok;
+      EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
+      EL.sSpd.textContent=Math.round(tok/Math.max(dt,.1));
+      addTL('ok',`✓ 回复 OK (${Math.round(dt*10)/10}s)`,`${tok} tok`);
+      saveStats(); updateRings(dt);
+      speakOnBotReply(txt);
+      return;
+    }
+    // 超过最大轮次
+    ty.remove();
+    if(!finalWrap) finalWrap=appendMsg('bot','（工具调用轮次过多，已停止）');
+    addTL('err','工具调用超过最大轮次');
+  }catch(e){
+    ty.remove();
+    // 若工具调用不被 API 支持，回退到普通对话
+    if(!finalWrap && (e.message.includes('tool')||e.message.includes('400'))){
+      try{
+        // 回退时用纯文本（图片转文字描述，避免多模态不兼容）
+        const fbContent=[];
+        if(prompt) fbContent.push(prompt);
+        files.forEach(f=>{
+          if(f.isImage) fbContent.push(`[图片: ${f.name} (${fmtSize(f.size)})]`);
+          else fbContent.push(`[文件: ${f.name} (${fmtSize(f.size)})]`);
+        });
+        // 回退也带上 system(人格+记忆) 与对话历史，确保记忆生效
+        const fbMessages=[{role:'system',content:buildSystemPrompt()}];
+        pushHistory(fbMessages);
+        fbMessages.push({role:'user',content:fbContent.join('\n')});
+        const r=await fetch(url,{
+          method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+          body:JSON.stringify({model:model,messages:fbMessages,stream:false})
+        });
+        if(r.ok){
+          const j=await r.json();
+          const txt=(j.choices&&j.choices[0]&&(j.choices[0].message.content||j.choices[0].message.reasoning_content))||'(空)';
+          finalWrap=appendMsg('bot',txt); addSaveBtn(finalWrap,txt);
+          // 保存到对话历史并提取记忆
+          pushChatTurn(prompt,txt);
+          extractAndSaveMemory(prompt,txt);
+          const tok=j.usage?.total_tokens||txt.length;
+          stats.tok+=tok; stats.ok++;
+          const dt=(performance.now()-t0)/1000; stats.sum+=dt;
+          EL.sTok.textContent=stats.tok; EL.tokPill.textContent='词元: '+stats.tok;
+          EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
+          EL.sSpd.textContent=Math.round(tok/Math.max(dt,.1));
+          addTL('ok',`✓ 回复 OK (${Math.round(dt*10)/10}s)`,`${tok} tok`);
+          saveStats(); updateRings(dt);
+          speakOnBotReply(txt);
+          return;
+        }
+      }catch(_){}
+    }
+    // 免费模型额度耗尽是常态：自动换模型重试，别直接退回假回复
+    const autoMsgs=[];
+    for(const m of messages){
+      if(m.role==='tool') continue;
+      const ct=m.content;
+      if(Array.isArray(ct)){
+        const txt=ct.map(p=>p&&p.type==='text'?p.text:(p&&p.image_url?'[图片]':'')).filter(Boolean).join('\n');
+        autoMsgs.push({role:m.role,content:txt||'(附件)'});
+      }else{
+        autoMsgs.push({role:m.role,content:String(ct==null?'':ct)});
+      }
+    }
+    for(const m of AUTO_FALLBACK_MODELS){
+      if(m===model) continue;
+      try{
+        const r2=await fetch(OFM_BASE+'/chat/completions',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+OFM_KEY},
+          body:JSON.stringify({model:m,messages:autoMsgs,stream:false,max_tokens:800})
+        });
+        if(!r2.ok) continue;
+        const j2=await r2.json();
+        const cm=j2.choices&&j2.choices[0]&&j2.choices[0].message;
+        const txt2=cm&&(cm.content||cm.reasoning_content);
+        if(!txt2) continue;
+        finalWrap=appendMsg('bot',txt2); addSaveBtn(finalWrap,txt2);
+        pushChatTurn(prompt,txt2);
+        extractAndSaveMemory(prompt,txt2);
+        // 记住这个能用的模型，下次直接用
+        const nc=aiConf(); nc.mode='ofm'; nc.baseUrl=OFM_BASE; nc.apiKey=OFM_KEY; nc.model=m;
+        localStorage.setItem('dafyAI',JSON.stringify(nc));
+        curModel=m; EL.mdlPill.textContent='模型: '+m;
+        const dt2=(performance.now()-t0)/1000;
+        stats.ok++; EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
+        addTL('ok',`已自动切到 ${m}（${dt2.toFixed(1)}s）`,'auto');
+        saveStats(); updateRings(dt2);
+        speakOnBotReply(txt2);
+        return;
+      }catch(_){ /* 换下一个 */ }
+    }
+    const demo=await demoReply(prompt);
+    finalWrap=appendMsg('bot',demo); addSaveBtn(finalWrap,demo);
+    // 演示回复也记录历史，保持对话连续性（不提取记忆，非真实 AI 回复）
+    pushChatTurn(prompt,demo);
+    const dt=(performance.now()-t0)/1000; stats.ok++;
+    EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
+    addTL('ok',`✓ 演示回复 (${Math.round(dt*10)/10}s)`,'demo'); saveStats(); updateRings(dt);
+  }
+}
+
+/* ---- Harness² 自进化（本地控制服务 127.0.0.1:18902） ---- */
+const H2=QQBOT_API+'/api/harness2';
+const evoMask=document.getElementById('evoMask');
+const evoSw=document.getElementById('evoSw');
+const evoSw2=document.getElementById('evoSw2');
+const evoLogEl=document.getElementById('evoLog');
+const evoRowInfo=document.getElementById('evoRowInfo');
+let evoBusy=false;
+function evoPaint(d){
+  const st=d.state||{};
+  const on=!!d.running;
+  const pill=document.getElementById('evoPill');
+  pill.textContent=on?'运行中':'已停止';
+  pill.className='evoPill '+(on?'on':'off');
+  evoSw.checked=on; evoSw2.checked=on;
+  evoRowInfo.textContent=!d.installed?'未安装 Harness²'
+    :(on?`运行中 · 第 ${st.round||0} 轮 · k=${st.k||0}`:'已停止');
+  document.getElementById('evRound').textContent=st.round||0;
+  document.getElementById('evK').textContent=st.k||0;
+  document.getElementById('evOk').textContent=st.okRounds||0;
+  document.getElementById('evExec').textContent=st.totalExecutions||0;
+  document.getElementById('evEdit').textContent=st.totalEditorCalls||0;
+  document.getElementById('evPhase').textContent=st.phase||'—';
+  const atBottom=evoLogEl.scrollTop+evoLogEl.clientHeight>=evoLogEl.scrollHeight-40;
+  const tail=(d.tail||[]).join('\n');
+  evoLogEl.textContent=tail||'等待输出…';
+  if(atBottom) evoLogEl.scrollTop=evoLogEl.scrollHeight;
+}
+async function evoPoll(){
+  try{
+    const r=await fetch(H2+'/status',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    evoPaint(await r.json());
+  }catch(e){
+    const pill=document.getElementById('evoPill');
+    pill.textContent='控制服务未连接'; pill.className='evoPill off';
+    evoRowInfo.textContent='控制服务未启动（双击 qqbot\\bridge.cmd）';
+    evoSw.checked=false; evoSw2.checked=false;
+  }
+}
+async function evoStart(){
+  if(evoBusy) return; evoBusy=true;
+  try{
+    const r=await fetch(H2+'/start',{method:'POST'});
+    const j=await r.json();
+    if(!j.ok){ alert(j.error||'启动失败'); evoSw.checked=false; evoSw2.checked=false; return; }
+    evoMask.classList.add('show');
+    let n=0; const tick=()=>{ evoPoll(); if(++n<10) setTimeout(tick,600); };
+    tick();
+  }catch(e){
+    alert('启动失败：'+e.message); evoSw.checked=false; evoSw2.checked=false;
+  }finally{ evoBusy=false; }
+}
+async function evoStop(){
+  if(!confirm('确定要停止自进化进程吗？停止后需要手动重新开启。')){ evoSw.checked=true; evoSw2.checked=true; return; }
+  try{ await fetch(H2+'/stop',{method:'POST'}); }catch(e){ alert('停止失败：'+e.message); }
+  setTimeout(evoPoll,1200); setTimeout(evoPoll,6000);
+}
+evoSw.onchange=()=>{ if(evoSw.checked) evoStart(); else evoStop(); };
+evoSw2.onchange=()=>{ if(evoSw2.checked) evoStart(); else evoStop(); };
+document.getElementById('evoOpen').onclick=()=>{ evoMask.classList.add('show'); evoPoll(); };
+document.getElementById('evoHide').onclick=()=>evoMask.classList.remove('show');
+document.getElementById('evoStopBtn').onclick=evoStop;
+// 点背景只在运行时收起窗口（进程继续跑）；只有「停止并退出」会真正结束
+evoMask.addEventListener('click',e=>{ if(e.target===evoMask && evoSw.checked) evoMask.classList.remove('show'); });
+evoPoll();
+setInterval(evoPoll,3000);
+
+/* ---- Agent Lightning 训练面板（本地控制服务 127.0.0.1:18902） ---- */
+const AGL=QQBOT_API+'/api/agl';
+const aglMask=document.getElementById('aglMask');
+const aglPill=document.getElementById('aglPill');
+let aglTimer=null;
+function aglDot(id,on,hasPid){
+  const el=document.getElementById(id);
+  el.className='aglDot '+(on?'on':(hasPid?'off':''));
+}
+function aglMiniLog(id,tail){
+  const el=document.getElementById(id);
+  el.textContent=(tail&&tail.length)?tail.slice(-6).join('\n'):'—';
+  el.scrollTop=el.scrollHeight;
+}
+function aglDrawChart(rewards){
+  const cv=document.getElementById('aglChart');
+  const dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth,h=cv.clientHeight;
+  if(!w||!h) return;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='rgba(88,208,255,.15)'; ctx.lineWidth=1;
+  for(let i=1;i<4;i++){ const y=h*i/4; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  if(!rewards||!rewards.length){
+    ctx.fillStyle='#7fa8c9'; ctx.font='12px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('暂无 reward 数据（开始训练后此处显示曲线）',w/2,h/2);
+    return;
+  }
+  const vals=rewards.map(r=>r.reward);
+  let mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+  if(mn===mx){ mn-=1; mx+=1; }
+  const X=i=>rewards.length===1?w/2:(i/(rewards.length-1))*(w-20)+10;
+  const Y=v=>h-14-((v-mn)/(mx-mn))*(h-28);
+  ctx.strokeStyle='#ffd36b'; ctx.lineWidth=2; ctx.beginPath();
+  rewards.forEach((r,i)=>{ const x=X(i),y=Y(r.reward); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.stroke();
+  ctx.fillStyle='#58d0ff';
+  rewards.forEach((r,i)=>{ ctx.beginPath(); ctx.arc(X(i),Y(r.reward),2.5,0,7); ctx.fill(); });
+  ctx.fillStyle='#7fa8c9'; ctx.font='10px sans-serif';
+  ctx.textAlign='left';  ctx.fillText(mx.toFixed(3),4,12);
+  ctx.fillText(mn.toFixed(3),4,h-4);
+}
+function aglPaint(d){
+  const gw=d.gateway||{},ct=d.controller||{},tr=d.trainer||{};
+  const anyOn=gw.running||ct.running||tr.running;
+  aglPill.textContent=anyOn?'运行中':'已停止';
+  aglPill.className='evoPill '+(anyOn?'on':'off');
+  document.getElementById('aglPort').textContent=d.port||8080;
+  aglDot('aglDotGw',gw.running,gw.pid); aglDot('aglDotCt',ct.running,ct.pid); aglDot('aglDotTr',tr.running,tr.pid);
+  document.getElementById('aglPidGw').textContent=gw.pid?('PID '+gw.pid):'';
+  document.getElementById('aglPidCt').textContent=ct.pid?('PID '+ct.pid):'';
+  document.getElementById('aglPidTr').textContent=tr.pid?('PID '+tr.pid):'';
+  aglMiniLog('aglLogGw',gw.tail); aglMiniLog('aglLogCt',ct.tail); aglMiniLog('aglLogTr',tr.tail);
+  document.getElementById('aglTrNote').textContent=tr.supported?'已配置训练命令':'本机显卡不支持训练 · 需配置远程 GPU';
+  const ro=d.rollouts;
+  const bs=(ro&&ro.byStatus)||{};
+  const done=(bs.succeeded||0)+(bs.completed||0)+(bs.finished||0);
+  const failed=(bs.failed||0)+(bs.error||0)+(bs.cancelled||0);
+  const running=(ro?ro.total:0)-done-failed;
+  document.getElementById('aglTotal').textContent=ro?ro.total:0;
+  document.getElementById('aglRunning').textContent=Math.max(running,0);
+  document.getElementById('aglDone').textContent=done;
+  document.getElementById('aglFailed').textContent=failed;
+  const rw=(ro&&ro.rewards)||[];
+  document.getElementById('aglAvgR').textContent=rw.length?(rw.reduce((s,r)=>s+r.reward,0)/rw.length).toFixed(3):'—';
+  aglDrawChart(rw);
+}
+async function aglPoll(){
+  try{
+    const r=await fetch(AGL+'/status',{cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    aglPaint(await r.json());
+  }catch(e){
+    aglPill.textContent='控制服务未连接'; aglPill.className='evoPill off';
+  }
+}
+async function aglCall(path){
+  try{
+    const r=await fetch(AGL+path,{method:'POST'});
+    const j=await r.json();
+    if(!j.ok){ alert(j.error||'操作失败'); return false; }
+    setTimeout(aglPoll,800); setTimeout(aglPoll,3000);
+    return true;
+  }catch(e){ alert('操作失败：'+e.message); return false; }
+}
+document.getElementById('aglBtn').onclick=()=>{ aglMask.classList.add('show'); aglPoll(); };
+document.getElementById('aglHide').onclick=()=>aglMask.classList.remove('show');
+aglMask.addEventListener('click',e=>{ if(e.target===aglMask) aglMask.classList.remove('show'); });
+document.getElementById('aglStartAll').onclick=()=>aglCall('/start');
+document.getElementById('aglStopAll').onclick=async()=>{
+  if(!confirm('确定要停止 Gateway 和 Controller 吗？')) return;
+  aglCall('/stop');
+};
+document.querySelectorAll('.aglCompBtn').forEach(b=>{
+  b.onclick=()=>aglCall('/component/'+b.dataset.comp+'/'+b.dataset.act);
+});
+// 面板打开时每 3 秒刷新，关闭时停止轮询
+setInterval(()=>{ if(aglMask.classList.contains('show')) aglPoll(); },3000);
+
+/* ============ 抖音摸鱼视频 ============ */
+const VID='http://127.0.0.1:18903';
+const vid={
+  mask:document.getElementById('videoMask'),
+  pill:document.getElementById('vidPill'),
+  start:document.getElementById('vidStart'),
+  stop:document.getElementById('vidStop'),
+  next:document.getElementById('vidNext'),
+  login:document.getElementById('vidLogin'),
+  front:document.getElementById('vidFront'),
+  hide:document.getElementById('vidHide'),
+  shot:document.getElementById('vidShot'),
+  pub:document.getElementById('vidPub'),
+  gap:document.getElementById('vidGap'),
+  shotBox:document.getElementById('vidShotBox'),
+  title:document.getElementById('vidTitle'),
+  sub:document.getElementById('vidSub'),
+  feed:document.getElementById('vidFeed'),
+  daily:document.getElementById('vidDaily'),
+  log:document.getElementById('vidLog'),
+  live:document.getElementById('vidLive'),
+  ph:document.getElementById('vidPh'),
+  launch:document.getElementById('vidLaunch'),
+  launchTip:document.getElementById('vidLaunchTip'),
+  full:document.getElementById('vidFull'),
+  fold:document.getElementById('vidFold'),
+  expand:document.getElementById('vidExpand'),
+};
+let vidRunning=false, vidTimer=null, vidBusy=false;
+let vidLiveOn=false, vidLiveTimer=null, vidLiveFail=0, vidLiveBroken=false;
+let vidSkipStreak=0, vidSkipTotal=0;
+let vidNextDelay=0;
+
+async function vidApi(path,body,method){
+  const opt={method:method||'POST',headers:{'Content-Type':'application/json'}};
+  if(opt.method==='POST' && body!==undefined) opt.body=JSON.stringify(body);
+  const r=await fetch(VID+path,opt);
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!j) throw new Error('视频服务返回了非 JSON 内容（HTTP '+r.status+'）');
+  return j;
+}
+function vidLog(msg,isErr){
+  vid.log.textContent=msg;
+  vid.log.className='vid-log'+(isErr?' err':'');
+}
+function vidPill(text,cls){
+  vid.pill.textContent=text;
+  vid.pill.className='vid-pill '+(cls||'');
+}
+/* 实时画面：服务端用 CDP 推流（整窗），这里按播放器位置裁切，只显示视频区域 */
+let vidBox=null, lastBoxAt=0;
+function vidLayoutLive(){
+  if(!vidBox||!vid.live) return;
+  const cw=vid.shotBox.clientWidth, ch=vid.shotBox.clientHeight;
+  if(!cw||!ch) return;
+  const b=vidBox.box, vw=vidBox.vw, vh=vidBox.vh;
+  if(!b||!b.width||!b.height) return;
+  const s=Math.min(cw/b.width, ch/b.height);
+  vid.live.style.width=(vw*s)+'px';
+  vid.live.style.height=(vh*s)+'px';
+  vid.live.style.left=(((cw-b.width*s)/2)-b.x*s)+'px';
+  vid.live.style.top=(((ch-b.height*s)/2)-b.y*s)+'px';
+}
+async function vidUpdateBox(){
+  try{
+    const j=await vidApi('/api/box',null,'GET');
+    if(j && j.ok && j.box){ vidBox=j; vidLayoutLive(); }
+  }catch(e){}
+}
+window.addEventListener('resize',vidLayoutLive);
+function vidLiveStart(){
+  if(vidLiveOn || vidLiveBroken) return;
+  vidLiveOn=true; vidLiveFail=0;
+  vidUpdateBox(); lastBoxAt=Date.now();
+  const tick=()=>{
+    if(!vidLiveOn) return;
+    if(Date.now()-lastBoxAt>5000){ lastBoxAt=Date.now(); vidUpdateBox(); }
+    const n=new Image();
+    n.onload=()=>{
+      vidLiveFail=0;
+      vid.live.src=n.src;
+      if(vid.live.style.display==='none'){
+        vid.live.style.display='block';
+        vid.ph.style.display='none';
+        vidLayoutLive();
+      }
+    };
+    n.onerror=()=>{
+      vidLiveFail++;
+      // 服务端还是旧版本（没有 /api/live.jpg）或截图失败：退回静态画面，别一直白屏
+      if(vidLiveFail>=3){
+        vidLiveBroken=true;
+        vidLiveStop();
+        if(vid.live.src && vid.live.style.display==='block') return;
+        vid.ph.style.display='';
+        vid.launch.style.display='none';
+        vid.launchTip.textContent='实时画面没拿到：请重启 video-server\\启动视频服务.cmd';
+      }
+    };
+    n.src=VID+'/api/live.jpg?t='+Date.now();
+    const folded=vid.mask.classList.contains('fold');
+    vidLiveTimer=setTimeout(tick, folded?900:110);
+  };
+  tick();
+}
+function vidLiveStop(){
+  vidLiveOn=false;
+  if(vidLiveTimer){ clearTimeout(vidLiveTimer); vidLiveTimer=null; }
+}
+async function vidPoll(){
+  try{
+    const j=await vidApi('/api/ping',null,'GET');
+    vid.launch.style.display='none';
+    vid.launchTip.textContent='';
+    if(j.running && j.loggedIn) vidPill('已登录 · 服务在线','on');
+    else if(j.running) vidPill('浏览器已开 · 未登录','warn');
+    else vidPill('服务在线 · 浏览器未打开','');
+    vid.login.textContent=j.loggedIn?'✓ 已登录':'登录抖音';
+    vid.daily.textContent=`今日 ${j.dailyCount||0}/${j.dailyLimit||20}`;
+    if(j.running && vid.mask.classList.contains('show')) vidLiveStart();
+  }catch(e){
+    vidPill('视频服务未启动','err');
+    vidLiveStop();
+    vid.launch.style.display='inline-block';
+    vid.launchTip.textContent='双击 video-server\\启动视频服务.cmd，或点上面的按钮';
+    if(vid.mask.classList.contains('show')){
+      vidLog('视频服务没连上：点「▶ 启动视频服务」或双击 启动视频服务.cmd',true);
+    }
+  }
+}
+function vidSavePrefs(){
+  try{
+    localStorage.setItem('dafyVideoPub',vid.pub.checked?'1':'0');
+    localStorage.setItem('dafyVideoGap',vid.gap.value);
+  }catch(e){}
+}
+function vidLoadPrefs(){
+  try{
+    const p=localStorage.getItem('dafyVideoPub');
+    if(p!=null) vid.pub.checked=(p==='1');
+    const g=localStorage.getItem('dafyVideoGap');
+    if(g && [...vid.gap.options].some(o=>o.value===g)) vid.gap.value=g;
+  }catch(e){}
+}
+function vidShowVideo(v){
+  vidLiveBroken=false;   // 新视频来了，重新试一次实时画面
+  // 先显示这张静态画面，保证任何情况下都不会是白屏
+  if(v && v.shot && !vidLiveOn){
+    vid.live.src=v.shot;
+    vid.live.style.display='block';
+    vid.ph.style.display='none';
+  }
+  vidUpdateBox();
+  vid.title.textContent=(v&&v.title)||'（未识别到标题）';
+  const bits=[];
+  if(v&&v.author) bits.push(v.author);
+  if(v&&v.video){
+    if(v.video.duration) bits.push(`${v.video.duration}s`);
+    bits.push(v.video.paused?'已暂停':'播放中');
+  }
+  if(v&&v.comments&&v.comments.length) bits.push(`${v.comments.length} 条可见评论`);
+  vid.sub.textContent=bits.join(' · ')||'正在抖音里找视频…';
+}
+function vidAddItem(v,text,status,cls){
+  if(vid.feed.querySelector('.fs-empty')) vid.feed.innerHTML='';
+  const el=document.createElement('div'); el.className='viditem';
+  const vt=document.createElement('div'); vt.className='vt';
+  vt.textContent=(v&&v.title)||'当前视频';
+  const vc=document.createElement('div'); vc.className='vc'; vc.textContent=text;
+  const vs=document.createElement('div'); vs.className='vs '+(cls||''); vs.textContent=status;
+  el.appendChild(vt); el.appendChild(vc); el.appendChild(vs);
+  vid.feed.appendChild(el);
+  vid.feed.scrollTop=vid.feed.scrollHeight;
+  return el;
+}
+function vidItemStatus(el,status,cls){
+  if(!el) return;
+  const vs=el.querySelector('.vs');
+  vs.textContent=status;
+  vs.className='vs '+(cls||'');
+}
+/* 把刷到的视频写进记忆：先记内容，评论生成后再补全同一条记忆 */
+const MAX_VIDEO_FACTS=20;
+function vidTrimVideoFacts(){
+  let n=0;
+  memoryFacts=memoryFacts.filter(f=>{
+    if(f.startsWith('【刷视频】')){ n++; return n<=MAX_VIDEO_FACTS; }
+    return true;
+  });
+}
+function rememberVideo(v,comment){
+  if(!v) return;
+  let title=String(v.title||'').replace(/#[^\s#]+/g,'').replace(/\s+/g,' ').trim();
+  if(!title) return;
+  if(title.length>60) title=title.slice(0,60);
+  const author=String(v.author||'').replace(/^@/,'').split('·')[0].replace(/\s+/g,' ').trim().slice(0,24);
+  const desc=String(v.desc||'').replace(/#[^\s#]+/g,'').replace(/\s+/g,' ').trim().slice(0,80);
+  const key=`【刷视频】《${title}》`;
+  const fact=(key+(author?' UP主 '+author:'')+(desc?'：'+desc:'')+(comment?'｜大肥鱼评论：'+comment:'')).slice(0,180);
+  const idx=memoryFacts.findIndex(f=>f.startsWith(key));
+  if(idx>=0){
+    if(comment && !memoryFacts[idx].includes(comment)){
+      memoryFacts[idx]=fact;
+      vidTrimVideoFacts();
+      saveMemory();
+      addTL('ok','🧠 视频记忆已补全评论','memory');
+    }
+    return;
+  }
+  if(addMemoryFact(fact)){
+    vidTrimVideoFacts();
+    saveMemory();
+    addTL('ok',`🧠 记下了刷到的视频：《${title.slice(0,30)}》`,'memory');
+  }
+}
+
+function vidCleanComment(t){
+  let s=String(t||'').trim()
+    .replace(/^["“'‘]+|["”'’]+$/g,'')
+    .replace(/^(评论|回复)\s*[：:]\s*/,'')
+    .split('\n')[0]
+    .replace(/\s+/g,' ')
+    .trim();
+  if(s.length>40) s=s.slice(0,40);
+  return s;
+}
+async function vidWriteComment(v){
+  const c=aiConf();
+  const url=aiChatUrl(c);
+  const key=aiChatKey(c);
+  const model=aiChatModel(c);
+  const prompt=`你正在刷抖音，先判断这条视频值不值得看完，再决定要不要评论。
+标题：${(v&&v.title)||'（未知）'}
+作者：${(v&&v.author)||'（未知）'}
+简介：${String((v&&v.desc)||'').slice(0,220)||'（无）'}
+热门评论：${((v&&v.comments)||[]).join(' / ').slice(0,260)||'（无）'}
+
+按「大肥鱼」的口味判断：
+- 低质、标题党、纯广告、重复搬运、看不懂、没信息量 → 直接划走
+- 美食、萌宠、搞笑、生活技巧、有意思的故事 → 值得看完
+
+严格只输出 JSON（不要 markdown、不要解释）：
+{"skip":true,"reason":"12字内理由","comment":""}
+skip 为 false 时，comment 写一条 20 字内的口语化短评：像真人、带点可爱/傲娇，只聊视频内容，不 @ 任何人、不带链接、不提 AI。`;
+  const r=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({
+      model:model,
+      messages:[{role:'system',content:PERSONA},{role:'user',content:prompt}],
+      stream:false,
+      max_tokens:300,
+      temperature:0.7,
+      think:c.mode==='oll'?false:undefined
+    })
+  });
+  if(!r.ok) throw new Error('AI 接口 HTTP '+r.status);
+  const j=await r.json();
+  const txt=(j.choices&&j.choices[0]&&(j.choices[0].message.content||j.choices[0].message.reasoning_content))||'';
+  const m=String(txt).match(/\{[\s\S]*\}/);
+  if(m){
+    try{
+      const o=JSON.parse(m[0]);
+      return {
+        skip:!!o.skip,
+        reason:String(o.reason||'').slice(0,20),
+        comment:o.skip?'':vidCleanComment(o.comment)
+      };
+    }catch(e){}
+  }
+  // 模型没按 JSON 输出：当成「值得看完」，把它当一个评论用
+  return {skip:false, reason:'', comment:vidCleanComment(txt)};
+}
+async function vidStep(){
+  if(vidBusy){ vidLog('上一条还没处理完，稍等一下～'); return; }
+  vidBusy=true; vid.next.disabled=true;
+  try{
+    // 连续跳过的上限：跳太多次就停下来，避免一直空转
+    for(let tries=0; tries<=6; tries++){
+      vidLog('正在刷下一条…');
+      const j=await vidApi('/api/next',{});
+      if(!j.ok){
+        if(j.needLogin){ vidLog('需要登录抖音：点「登录抖音」完成扫码',true); vidStopAuto(); }
+        else vidLog('刷视频失败：'+(j.reason||'未知原因'),true);
+        return;
+      }
+      const v=j.video||{};
+      vidShowVideo(v);
+      rememberVideo(v,'');   // 先记下视频内容，评论生成后再补全
+
+      vidLog('大肥鱼在判断这条好不好看…');
+      let judge=null;
+      try{ judge=await vidWriteComment(v); }catch(e){ vidLog('AI 判断失败：'+e.message,true); }
+      const skip=!!(judge&&judge.skip) && vidSkipStreak<4;   // 连续跳 4 条就强制看一条
+      if(skip){
+        vidSkipStreak++; vidSkipTotal++;
+        vidAddItem(v, judge.reason||'不合口味','不好看 · 已划走','err');
+        vidLog(`觉得不好看，划走了：${judge.reason||'没意思'}`);
+        await new Promise(r=>setTimeout(r,2200));
+        continue;   // 立刻刷下一条
+      }
+      vidSkipStreak=0;
+      // 看完这条再走：按视频时长排下一条，避免抖音自己播到下一条还没判断
+      const dur=(v.video&&v.video.duration)||0;
+      vidNextDelay = dur>3 ? dur*1000+5000 : 0;
+
+      const text=(judge&&judge.comment)||'';
+      if(!text){
+        vidLog('这条值得看，但 AI 没想出评论（内容已记入记忆）',true);
+        return;
+      }
+      rememberVideo(v,text);
+      const item=vidAddItem(v,text,'生成中…','');
+      if(vid.pub.checked){
+        vidLog('正在发布评论…');
+        const p=await vidApi('/api/comment',{text:text});
+        if(p.ok){
+          vidItemStatus(item,'已发布','ok');
+          vidLog('已发布：'+text);
+          vid.daily.textContent=`今日 ${p.count||0}/${p.limit||20}`;
+        }else{
+          const why=p.reason||'未知原因';
+          vidItemStatus(item,(p.needLogin?'未登录 · 仅生成':'发布失败：'+why).slice(0,40),'err');
+          vidLog('发布失败：'+why,true);
+          if(p.needLogin) vidStopAuto();
+        }
+      }else{
+        vidItemStatus(item,'仅生成（未发布）','');
+        vidLog('评论已生成，但发布开关是关的');
+      }
+      return;
+    }
+    vidLog('连续划走了太多条，先停一下看看',true);
+  }catch(e){
+    vidLog('出错：'+(e.message||e),true);
+  }finally{
+    vidBusy=false; vid.next.disabled=false;
+  }
+}
+function vidScheduleNext(){
+  if(!vidRunning) return;
+  if(vidTimer) clearTimeout(vidTimer);
+  const cfg=(parseInt(vid.gap.value,10)||90)*1000;
+  const gap=vidNextDelay>0?Math.min(vidNextDelay,cfg):cfg;
+  vidNextDelay=0;
+  vidTimer=setTimeout(async()=>{
+    if(!vidRunning) return;
+    await vidStep();
+    vidScheduleNext();
+  },gap);
+}
+function vidStartAuto(){
+  if(vidRunning) return;
+  vidRunning=true;
+  vid.start.disabled=true; vid.stop.disabled=false;
+  vidLog('正在启动…（第一次会拉起后台浏览器）');
+  vidLiveStart();
+  vidApi('/api/window',{show:false}).catch(()=>{});   // 后台运行，不挡大屏
+  vidStep().finally(()=>vidScheduleNext());
+}
+function vidStopAuto(){
+  vidRunning=false;
+  if(vidTimer){ clearTimeout(vidTimer); vidTimer=null; }
+  vid.start.disabled=false; vid.stop.disabled=true;
+  vidLog('自动刷视频已停止');
+}
+vid.start.onclick=vidStartAuto;
+vid.stop.onclick=vidStopAuto;
+vid.next.onclick=()=>vidStep();
+vid.login.onclick=async()=>{
+  vidLog('正在打开抖音登录窗口…');
+  try{
+    const j=await vidApi('/api/login',{});
+    vidLog(j.tip||'浏览器已打开');
+    setTimeout(vidPoll,2000);
+  }catch(e){ vidLog('打开失败：'+e.message,true); }
+};
+vid.front.onclick=async()=>{
+  try{ await vidApi('/api/window',{show:true}); vidLog('抖音窗口已显示（扫码登录用，平时请点「隐藏窗口」）'); }
+  catch(e){ vidLog('显示失败：'+e.message,true); }
+};
+vid.hide.onclick=async()=>{
+  try{ await vidApi('/api/window',{show:false}); vidLog('抖音窗口已移到屏幕外，后台继续刷'); }
+  catch(e){ vidLog('隐藏失败：'+e.message,true); }
+};
+vid.shot.onclick=async()=>{
+  try{
+    const j=await vidApi('/api/current',null,'GET');
+    if(j.ok&&j.video){ vidShowVideo(j.video); vidLog('画面已刷新'); }
+    else vidLog('还没有在播放的视频',true);
+  }catch(e){ vidLog('刷新失败：'+e.message,true); }
+};
+vid.pub.onchange=vidSavePrefs;
+vid.gap.onchange=vidSavePrefs;
+function vidOpenPanel(){
+  vid.mask.classList.remove('fold');
+  vid.mask.classList.add('show');
+  vidPoll();
+}
+function vidClosePanel(){
+  vid.mask.classList.remove('show');
+  vidLiveStop();
+}
+document.getElementById('videoBtn').onclick=vidOpenPanel;
+document.getElementById('vidClose').onclick=vidClosePanel;
+// 全屏 / 退出全屏
+vid.full.onclick=()=>{
+  if(vid.mask.classList.contains('full')) vid.mask.classList.remove('full');
+  else { vid.mask.classList.remove('fold'); vid.mask.classList.add('full'); }
+};
+// 收起成右下角小窗：自动刷继续跑，画面继续刷新
+vid.fold.onclick=()=>{ vid.mask.classList.remove('full'); vid.mask.classList.add('fold'); };
+vid.expand.onclick=()=>{ vid.mask.classList.remove('fold'); vidPoll(); };
+// 服务没起时，点这里用 dafyv:// 协议拉起启动脚本
+vid.launch.onclick=()=>{
+  vid.launchTip.textContent='正在启动…浏览器如果弹出提示请点「打开」';
+  try{ window.open('dafyv://start','_blank'); }catch(e){}
+  let n=0;
+  const t=setInterval(async()=>{
+    n++;
+    try{
+      await vidApi('/api/ping',null,'GET');
+      clearInterval(t);
+      vidLog('视频服务已启动');
+      vidPoll();
+    }catch(e){
+      if(n>=12){
+        clearInterval(t);
+        vid.launchTip.textContent='没启动成功：直接双击 video-server\\启动视频服务.cmd';
+      }else{
+        vid.launchTip.textContent=`正在启动…（${n}/12）`;
+      }
+    }
+  },1500);
+};
+vid.mask.addEventListener('click',e=>{
+  if(e.target===vid.mask && !vid.mask.classList.contains('full')) vidClosePanel();
+});
+vidLoadPrefs();
+vid.stop.disabled=true;
+vidPoll();
+setInterval(()=>{ if(vid.mask.classList.contains('show')) vidPoll(); },5000);
+
+const verPill=document.getElementById('verPill');
+if(verPill) verPill.textContent='v'+APP_VERSION;
+// 启动时只读本地插件缓存，不联网
+if(pluginFromCache()) pluginCacheInfoEl.textContent=`已缓存 ${pluginIndex.length} 个插件`;
+renderTools();
+fetchModels();
+fsInit();
+loadMemory();
+loadChatHistory();
+restoreChatLog();
+setInterval(()=>{ if(stats.req) updateRings(stats.sum/stats.req); },2000);
+</script>
+
+</body>
+</html>

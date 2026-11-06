@@ -1,0 +1,1 @@
+{"detail":[{"type":"dict_type","loc":["body"],"msg":"Input should be a valid dictionary","input":"{\"text\":\"你好呀，我是大肥鱼的女声版本！\",\"voiceId\":\"female1\",\"temperature\":0.3}"}]}

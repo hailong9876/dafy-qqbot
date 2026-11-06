@@ -1,0 +1,1 @@
+mem=50 dir=E:\ai\Conversation_Records

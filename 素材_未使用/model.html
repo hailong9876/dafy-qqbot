@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>大肥鱼 · 建模验收（可动绑定）</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Microsoft Yahei","PingFang SC",sans-serif;
+    background:radial-gradient(1200px 700px at 30% 0%,#eef3fb,#dbe3f0 60%,#cfd9ea);
+    color:#1d2338;min-height:100vh;padding:20px}
+  h1{font-size:22px;letter-spacing:3px;margin-bottom:4px}
+  h1 em{font-style:normal;background:linear-gradient(90deg,#5c6fb0,#8aa7e0);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+  .sub{font-size:13px;color:#6b748c;margin-bottom:16px;line-height:1.7}
+  .grid{display:grid;grid-template-columns:minmax(430px,1fr) 380px;gap:18px;max-width:1080px}
+  .panel{background:rgba(255,255,255,.7);border:1px solid rgba(120,150,200,.35);border-radius:18px;padding:16px;
+    box-shadow:0 12px 34px rgba(40,60,100,.14)}
+  .stage{position:relative;height:600px;border-radius:16px;overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 12%,#fdfbf6 0%,#f1ece1 58%,#e6dfd1 100%);
+    display:flex;align-items:center;justify-content:center}
+  .stage::before{content:"";position:absolute;inset:0;
+    background-image:linear-gradient(rgba(90,110,150,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(90,110,150,.05) 1px,transparent 1px);
+    background-size:32px 32px}
+  .ground{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);
+    width:250px;height:26px;border-radius:50%;background:radial-gradient(ellipse,rgba(80,100,140,.24),transparent 70%)}
+  #m{position:relative;width:420px;height:437px;overflow:visible;cursor:pointer;filter:drop-shadow(0 16px 26px rgba(60,70,110,.22))}
+  .controls{margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .btn{padding:7px 14px;border-radius:999px;border:1px solid rgba(110,140,190,.45);background:#fff;
+    color:#31406a;font-size:13px;cursor:pointer;transition:.18s;font-family:inherit}
+  .btn:hover{background:#eaf1fb}
+  .btn.on{background:linear-gradient(135deg,#4f74c0,#6f95d8);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(70,100,170,.32)}
+  .lbl{font-size:12px;color:#8a93aa;letter-spacing:1px;margin-right:2px}
+  .ref{width:100%;border-radius:12px;border:1px solid rgba(120,150,200,.3);display:block;background:#fff}
+  .trio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+  .trio figure{margin:0;background:linear-gradient(180deg,#fbf7ef,#efe8dc);border:1px solid rgba(120,150,200,.28);
+    border-radius:10px;padding:6px 4px 4px;text-align:center}
+  .trio img{width:100%;height:148px;object-fit:contain;display:block}
+  .trio figcaption{font-size:11.5px;color:#7d869c;margin-top:4px;letter-spacing:1px}
+  .tips{font-size:12.5px;line-height:1.9;color:#5c6580}
+  .tips b{color:#31406a}
+  .tips li{margin:3px 0}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:4px;border:1px solid rgba(0,0,0,.15)}
+  .hint{font-size:12px;color:#8a93aa;margin-top:8px}
+
+  /* ===== 待机：呼吸 + 轻微摇摆 ===== */
+  #m.act-idle #bob{animation:breathe 3.4s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(-4px) scale(.995,1.012)}}
+  #m.act-idle #whole{animation:sway 5.2s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes sway{0%,100%{transform:rotate(-1.1deg)}50%{transform:rotate(1.1deg)}}
+
+  /* ===== 跳跳 ===== */
+  #m.act-jump #whole{animation:hop .82s cubic-bezier(.3,1.35,.45,1) infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes hop{0%,100%{transform:translateY(0) scale(1,1)}30%{transform:translateY(-34px) scale(.94,1.06)}52%{transform:translateY(0) scale(1.08,.9)}62%{transform:translateY(0) scale(.96,1.04)}74%{transform:translateY(-9px) scale(1,1)}}
+  #m.act-jump #bob{animation:hopBob .82s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes hopBob{0%,100%{transform:scale(1,1)}30%{transform:scale(1.04,.97)}52%{transform:scale(.97,1.03)}}
+
+  /* ===== 挥手 ===== */
+  #m.act-wave #whole{animation:waveLean 1.05s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes waveLean{0%,100%{transform:rotate(-2deg) translateX(-4px)}50%{transform:rotate(-4.5deg) translateX(-8px)}}
+  #m.act-wave #handWave{opacity:1;animation:waveHand .62s ease-in-out infinite;transform-box:view-box;transform-origin:378px 112px}
+  @keyframes waveHand{0%,100%{transform:rotate(-15deg)}50%{transform:rotate(15deg)}}
+
+  /* ===== 摸摸头 ===== */
+  #m.act-pat #handPat{opacity:1;animation:tap .68s ease-in-out infinite;transform-box:view-box;transform-origin:196px 44px}
+  @keyframes tap{0%,100%{transform:translateY(-40px) rotate(-9deg)}42%{transform:translateY(3px) rotate(1deg) scale(1.07,.9)}58%{transform:translateY(-5px) rotate(-2deg) scale(1,.99)}}
+  #m.act-pat #bob{animation:patSquash .68s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes patSquash{0%,100%{transform:translateY(0) scale(1,1)}45%{transform:translateY(9px) scale(1.035,.955)}60%{transform:translateY(4px) scale(.99,1.01)}}
+  #m.act-pat #whole{animation:patLean .68s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes patLean{0%,100%{transform:rotate(0)}45%{transform:rotate(3.2deg)}60%{transform:rotate(1.4deg)}}
+  #m.act-pat #blush{opacity:1;animation:fadeBlush .68s ease-in-out infinite}
+  @keyframes fadeBlush{0%,100%{opacity:.35}45%{opacity:1}}
+
+  /* ===== 思考 ===== */
+  #m.act-think #whole{animation:thinkLean 2.6s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes thinkLean{0%,100%{transform:rotate(-3deg) translateX(-3px)}50%{transform:rotate(-6.5deg) translateX(-9px)}}
+  #m.act-think #bubble{opacity:1;animation:bubbleUp 2.6s ease-in-out infinite;transform-box:view-box;transform-origin:388px 78px}
+  @keyframes bubbleUp{0%,100%{transform:translate(0,0) scale(1)}40%{transform:translate(5px,-9px) scale(1.07)}}
+
+  /* ===== 转身 ===== */
+  #m.act-spin #bob{animation:spinSquash 2.6s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes spinSquash{0%,100%{transform:scaleX(1)}20%{transform:scaleX(.08)}40%{transform:scaleX(-1)}60%{transform:scaleX(-.08)}80%{transform:scaleX(1)}}
+
+  /* ===== 表情覆盖 ===== */
+  .fx{opacity:0}
+  #m.ex-joy  #fxJoy{opacity:1;animation:pop .55s ease-out infinite alternate}
+  #m.ex-joy  #bob{animation:joyBob .55s ease-in-out infinite alternate;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes joyBob{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-8px) rotate(2deg)}}
+  #m.ex-anger #fxAnger{opacity:1;animation:shake .12s linear infinite}
+  @m.ex-anger{}
+  #m.ex-anger #bob{animation:shakeAll .12s linear infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes shake{from{transform:translate(-3px,1px) rotate(-4deg)}to{transform:translate(3px,-1px) rotate(4deg)}}
+  @keyframes shakeAll{from{transform:translateX(-3px)}to{transform:translateX(3px)}}
+  #m.ex-sorrow #fxSorrow{opacity:1;animation:tearFall 1.4s linear infinite}
+  @keyframes tearFall{0%{opacity:0;transform:translateY(-6px)}20%{opacity:1}100%{opacity:0;transform:translateY(52px)}}
+  #m.ex-sorrow #bob{animation:sadSink 1.8s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes sadSink{0%,100%{transform:translateY(0)}50%{transform:translateY(9px) scale(1,.97)}}
+  #m.ex-happy #fxHappy{opacity:1;animation:noteFloat 1.6s ease-out infinite}
+  @keyframes noteFloat{0%{opacity:0;transform:translate(0,10px) scale(.7)}25%{opacity:1}100%{opacity:0;transform:translate(-18px,-60px) scale(1.1)}}
+  #m.ex-happy #blush{opacity:1}
+  #m.ex-happy #bob{animation:happyBob .7s ease-in-out infinite;transform-box:view-box;transform-origin:200px 452px}
+  @keyframes happyBob{0%,100%{transform:rotate(-2deg) translateY(0)}50%{transform:rotate(2deg) translateY(-6px)}}
+  @keyframes pop{from{transform:scale(.92)}to{transform:scale(1.06)}}
+
+  /* ===== 点击反馈 ===== */
+  .popHeart{animation:heartUp 1.5s ease-out forwards}
+  @keyframes heartUp{0%{opacity:0;transform:translate(0,0) scale(.4)}18%{opacity:1}100%{opacity:0;transform:translate(var(--dx,0),-110px) scale(1.35) rotate(12deg)}}
+</style>
+</head>
+<body>
+
+<h1>大肥鱼 · <em>建模验收</em>（原画抠图 + 可动绑定）</h1>
+<div class="sub">
+  形象 1:1 取自 <code>734bc435….jpg</code> 三视图的<b>正面 / 侧面 / 背面</b>三张立绘，<b>逐像素抠图、零重绘</b>，<br>
+  发丝、荷叶边、鲸鱼刺绣、蝴蝶结、呆毛、鞋子全部保留原细节。在其上做骨骼绑定：<b>呼吸 / 跳跳 / 挥手 / 摸摸头 / 思考 / 转身</b>，并可切换喜 / 怒 / 哀 / 乐表情。
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <div class="stage">
+      <div class="ground"></div>
+
+      <svg id="m" viewBox="0 0 445 463" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <!-- 皮肤：取自原画拳套实测色 #F9E7E3 / #FBE7E0 -->
+          <radialGradient id="skinG" cx="34%" cy="28%" r="78%">
+            <stop offset="0%"  stop-color="#FFF6F2"/>
+            <stop offset="55%" stop-color="#FAE6E0"/>
+            <stop offset="100%" stop-color="#EBCDC6"/>
+          </radialGradient>
+          <!-- 袖口：取自原画裙/袖深蓝 #37354B -->
+          <linearGradient id="cuffG" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stop-color="#54557A"/>
+            <stop offset="55%" stop-color="#3A3850"/>
+            <stop offset="100%" stop-color="#2A293D"/>
+          </linearGradient>
+        </defs>
+        <g id="whole">
+          <g id="bob">
+            <g id="turner">
+              <image id="vFront" href="assets/dafy_front.png" x="0" y="0" width="445" height="463"/>
+              <image id="vSide"  href="assets/dafy_side.png"  x="78"  y="0" width="290" height="463" opacity="0"/>
+              <image id="vBack"  href="assets/dafy_back.png"  x="-2"  y="0" width="448" height="463" opacity="0"/>
+            </g>
+
+            <!-- 腮红（反馈用，加深） -->
+            <g id="blush" class="fx">
+              <ellipse cx="125" cy="245" rx="16" ry="8.5" fill="#F2919C" opacity=".6"/>
+              <ellipse cx="253" cy="235" rx="16" ry="8.5" fill="#F2919C" opacity=".6"/>
+            </g>
+
+            <!-- 挥手：原画同款圆拳（肤色拳套 + 藏青袖口） -->
+            <g id="handWave" class="fx">
+              <g transform="translate(378,112) rotate(20)">
+                <!-- 袖口 -->
+                <path d="M-10,2 C-14,10 -16,20 -14,28 C-12,34 -7,37 0,37 C7,37 12,34 14,28 C16,20 14,10 10,2 Z" fill="url(#cuffG)"/>
+                <path d="M-10.5,5 C-6,9 6,9 10.5,5" fill="none" stroke="#8285AF" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+                <path d="M-9,18 C-3,22 3,22 9,18" fill="none" stroke="#5A5B80" stroke-width="1.7" stroke-linecap="round" opacity=".65"/>
+                <path d="M-7,27 C-3,30 3,30 7,27" fill="none" stroke="#1F2036" stroke-width="1.7" stroke-linecap="round" opacity=".5"/>
+                <!-- 拳套 -->
+                <ellipse cx="0" cy="0" rx="15.5" ry="14.5" fill="url(#skinG)"/>
+                <path d="M13.4,7.3 A15.5,14.5 0 0 1 -9.9,11.1" fill="none" stroke="#CBB3AD" stroke-width="2.4" stroke-linecap="round" opacity=".9"/>
+                <ellipse cx="-5" cy="-5.4" rx="5.1" ry="3.3" transform="rotate(-20 -5 -5.4)" fill="#FFFBF8" opacity=".5"/>
+                <!-- 挥动弧线 -->
+                <g stroke="#8FB6DC" stroke-width="2.4" fill="none" stroke-linecap="round" opacity=".85">
+                  <path d="M22,-10 a12,12 0 0 1 0,20"/>
+                  <path d="M30,-16 a19,19 0 0 1 0,32"/>
+                </g>
+              </g>
+            </g>
+
+            <!-- 摸摸头：原画同款圆拳（袖口朝上，从上方轻轻按下） -->
+            <g id="handPat" class="fx">
+              <g transform="translate(196,44) rotate(18)">
+                <!-- 袖口（朝上） -->
+                <path d="M10,-2 C14,-10 16,-20 14,-28 C12,-34 7,-37 0,-37 C-7,-37 -12,-34 -14,-28 C-16,-20 -14,-10 -10,-2 Z" fill="url(#cuffG)"/>
+                <path d="M10.5,-5 C6,-9 -6,-9 -10.5,-5" fill="none" stroke="#8285AF" stroke-width="2" stroke-linecap="round" opacity=".5"/>
+                <path d="M9,-18 C3,-22 -3,-22 -9,-18" fill="none" stroke="#5A5B80" stroke-width="1.7" stroke-linecap="round" opacity=".65"/>
+                <path d="M7,-27 C3,-30 -3,-30 -7,-27" fill="none" stroke="#1F2036" stroke-width="1.7" stroke-linecap="round" opacity=".5"/>
+                <!-- 拳套 -->
+                <ellipse cx="0" cy="0" rx="15.5" ry="14.5" fill="url(#skinG)"/>
+                <path d="M13.4,7.3 A15.5,14.5 0 0 1 -9.9,11.1" fill="none" stroke="#CBB3AD" stroke-width="2.4" stroke-linecap="round" opacity=".9"/>
+                <ellipse cx="-5" cy="-5.4" rx="5.1" ry="3.3" transform="rotate(-20 -5 -5.4)" fill="#FFFBF8" opacity=".45"/>
+              </g>
+            </g>
+
+            <!-- 思考气泡 -->
+            <g id="bubble" class="fx">
+              <g transform="translate(362,86)">
+                <circle cx="0" cy="26" r="8" fill="#fff" stroke="#8E9AB8" stroke-width="2"/>
+                <circle cx="10" cy="10" r="13" fill="#fff" stroke="#8E9AB8" stroke-width="2"/>
+                <circle cx="26" cy="-8" r="20" fill="#fff" stroke="#8E9AB8" stroke-width="2.2"/>
+                <text x="26" y="0" text-anchor="middle" font-size="26" font-weight="700" fill="#5B6785" font-family="sans-serif">?</text>
+              </g>
+            </g>
+
+            <!-- 喜：星星 -->
+            <g id="fxJoy" class="fx">
+              <g fill="#FFC94D" stroke="#E8A72C" stroke-width="1.4">
+                <path d="M72,196 l6,15 16,1 -12,11 4,16 -14,-9 -14,9 4,-16 -12,-11 16,-1 Z"/>
+                <path d="M382,168 l5,12 13,1 -10,9 3,13 -11,-7 -11,7 3,-13 -10,-9 13,-1 Z"/>
+              </g>
+              <g fill="#FF8FB1">
+                <path d="M346,236 c-9,-11 -24,-6 -24,6 c0,12 16,22 24,28 c8,-6 24,-16 24,-28 c0,-12 -15,-17 -24,-6 Z"/>
+              </g>
+            </g>
+
+            <!-- 怒：井字纹 -->
+            <g id="fxAnger" class="fx" stroke="#E4553F" stroke-width="4" stroke-linecap="round">
+              <path d="M306,196 l18,18 M324,196 l-18,18"/>
+            </g>
+
+            <!-- 哀：眼泪 -->
+            <g id="fxSorrow" class="fx">
+              <path d="M138,226 c-7,10 -11,15 -11,21 a11,11 0 0 0 22,0 c0,-6 -4,-11 -11,-21 Z" fill="#8FC6F0" stroke="#5B9BD0" stroke-width="1.6"/>
+              <path d="M223,221 c-7,10 -11,15 -11,21 a11,11 0 0 0 22,0 c0,-6 -4,-11 -11,-21 Z" fill="#8FC6F0" stroke="#5B9BD0" stroke-width="1.6"/>
+            </g>
+
+            <!-- 乐：音符 -->
+            <g id="fxHappy" class="fx" fill="#6FA8DC" stroke="#4B7FB5" stroke-width="1.4">
+              <ellipse cx="70" cy="212" rx="8" ry="6" transform="rotate(-20 70 212)"/>
+              <rect x="76" y="176" width="3.4" height="38" rx="1.4"/>
+              <path d="M79,176 C94,178 102,186 100,196 C96,188 86,183 79,183 Z"/>
+            </g>
+          </g>
+        </g>
+      </svg>
+
+    </div>
+    <div class="controls">
+      <span class="lbl">动作</span>
+      <button class="btn on" data-act="idle">待机</button>
+      <button class="btn" data-act="wave">挥手</button>
+      <button class="btn" data-act="jump">跳跳</button>
+      <button class="btn" data-act="pat">摸摸头</button>
+      <button class="btn" data-act="think">思考</button>
+      <button class="btn" data-act="spin">转身</button>
+    </div>
+    <div class="controls">
+      <span class="lbl">表情</span>
+      <button class="btn on" data-ex="none">常态</button>
+      <button class="btn" data-ex="joy">喜</button>
+      <button class="btn" data-ex="anger">怒</button>
+      <button class="btn" data-ex="sorrow">哀</button>
+      <button class="btn" data-ex="happy">乐</button>
+    </div>
+    <div class="hint">点一下角色 = 摸摸头反馈（弹跳 + 爱心 + 腮红）</div>
+  </div>
+
+  <div class="panel">
+    <div class="trio">
+      <figure><img src="assets/dafy_front.png" alt="正面"><figcaption>正面</figcaption></figure>
+      <figure><img src="assets/dafy_side.png" alt="侧面"><figcaption>侧面</figcaption></figure>
+      <figure><img src="assets/dafy_back.png" alt="背面"><figcaption>背面</figcaption></figure>
+    </div>
+    <img class="ref" src="assets/ref_front.png" alt="三视图 正面">
+    <div style="height:12px"></div>
+    <img class="ref" src="assets/ref_detail.png" alt="细节特写">
+    <div style="height:12px"></div>
+    <div class="tips">
+      <b>为什么用原画抠图而不是手绘矢量</b>
+      <ul style="padding-left:18px;margin-top:4px">
+        <li>前两版手绘 SVG 因丢失发丝/荷叶边/刺绣细节，被判定「一点也不像」；</li>
+        <li>本版直接对三视图做逐行泛洪抠图（抗锯齿边缘已做光晕清理），<b>零像素重绘</b>；</li>
+        <li>动作靠 <b>SVG 分层 + transform 绑定</b> 实现，不破坏原画；</li>
+        <li>手势圆拳按原画拳套<b>实测取色</b>复刻：肤色 <span class="sw" style="background:#F9E7E3"></span>、下缘灰影 <span class="sw" style="background:#CBB3AD"></span>、袖口深蓝 <span class="sw" style="background:#37354B"></span>。</li>
+      </ul>
+      <b style="display:block;margin-top:10px">原画色板</b>
+      <ul style="padding-left:18px;margin-top:4px">
+        <li>发色主调 <span class="sw" style="background:#5D6794"></span><span class="sw" style="background:#586097"></span>，发梢 <span class="sw" style="background:#849BBA"></span></li>
+        <li>裙子/尾鳍 <span class="sw" style="background:#3E4058"></span>，围裙/荷叶领 <span class="sw" style="background:#FBF6EC"></span></li>
+        <li>皮肤 <span class="sw" style="background:#FBE7E0"></span>，蝴蝶结 <span class="sw" style="background:#8FB6DC"></span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var m = document.getElementById('m');
+  var act = 'idle', ex = 'none';
+
+  function setAct(a){
+    act = a;
+    Array.prototype.forEach.call(m.classList, function(c){
+      if(/^act-/.test(c)) m.classList.remove(c);
+    });
+    m.classList.add('act-'+a);
+    document.querySelectorAll('[data-act]').forEach(function(b){
+      b.classList.toggle('on', b.dataset.act===a);
+    });
+    if(a!=='spin'){ spinStop(); }
+    else { spinStart(); }
+  }
+  function setEx(e){
+    ex = e;
+    Array.prototype.forEach.call(m.classList, function(c){
+      if(/^ex-/.test(c)) m.classList.remove(c);
+    });
+    if(e!=='none') m.classList.add('ex-'+e);
+    document.querySelectorAll('[data-ex]').forEach(function(b){
+      b.classList.toggle('on', b.dataset.ex===e);
+    });
+    /* 切换真实原画表情头（三视图身体 + 表情表头部合成图） */
+    var vf = document.getElementById('vFront');
+    if(vf){
+      vf.setAttribute('href', e==='none' ? 'assets/dafy_front.png' : 'assets/dafy_front_'+e+'.png');
+    }
+  }
+  document.querySelectorAll('[data-act]').forEach(function(b){
+    b.addEventListener('click',function(){ setAct(b.dataset.act); });
+  });
+  document.querySelectorAll('[data-ex]').forEach(function(b){
+    b.addEventListener('click',function(){ setEx(b.dataset.ex); });
+  });
+
+  /* ---- 转身：三视图轮流出场 + 横向压扁 ---- */
+  var f=document.getElementById('vFront'), s=document.getElementById('vSide'), b=document.getElementById('vBack');
+  var spinTimer=null, spinT=0, last=null;
+  function show(which){
+    if(which===last) return; last=which;
+    f.setAttribute('opacity', which==='f'?1:0);
+    s.setAttribute('opacity', which==='s'?1:0);
+    b.setAttribute('opacity', which==='b'?1:0);
+  }
+  function spinStart(){ spinT=0; last=null; show('f'); spinTimer=setInterval(function(){
+    spinT += 0.05;
+    var p = spinT % 2.6;
+    if(p < 0.52) show('f');
+    else if(p < 1.04) show('s');
+    else if(p < 1.82) show('b');
+    else show('s');
+  }, 50); }
+  function spinStop(){ if(spinTimer){ clearInterval(spinTimer); spinTimer=null; } show('f'); last=null; }
+
+  /* ---- 点击 = 摸摸头 ---- */
+  m.addEventListener('click',function(){
+    var hx = 160 + Math.random()*160, hy = 130;
+    var rect = m.getBoundingClientRect();
+    var host = document.querySelector('.stage');
+    var srect = host.getBoundingClientRect();
+    var px = srect.left + rect.left - srect.left + (hx/445)*rect.width;
+    var py = srect.top + rect.top - srect.top + (hy/463)*rect.height;
+    var h = document.createElement('div');
+    h.className = 'popHeart';
+    h.textContent = Math.random()<0.5?'♥':'✧';
+    h.style.cssText = 'position:absolute;left:'+(px-srect.left)+'px;top:'+(py-srect.top)+'px;color:#FF8FB1;font-size:26px;--dx:'+(Math.random()*40-20)+'px;pointer-events:none;text-shadow:0 2px 6px rgba(0,0,0,.12)';
+    host.appendChild(h);
+    setTimeout(function(){ h.remove(); }, 1600);
+    setAct('pat');
+    setTimeout(function(){ if(act==='pat') setAct('idle'); }, 1400);
+  });
+})();
+</script>
+</body>
+</html>
