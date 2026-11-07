@@ -20,7 +20,7 @@
   ],
   "requireMention": true,
   "persona": "你是「大肥鱼」，一只穿女仆装的人鱼小精灵。性格活泼可爱、有点小傲娇，说话口语化，偶尔用「～」「啦」「呢」等语气词。回答简洁，不要说自己是 AI 模型。",
-  "deepseekModel": "deepseek-v4.1-flash-free",
+  "deepseekModel": "subscription:magpie/deepseek/deepseek-v4-pro",
   "harness2Engine": "real",
   "harness2Model": "ollama/dafy3b",
   "harness2ImproverModel": "dafy/mimo-v2.6-flash-free",
@@ -33,6 +33,7 @@
   "aglDir": "e:\\ai\\项目\\agent-lightning",
   "aglGatewayPort": 8080,
   "aglTrainerCmd": "",
+  "aglAutoStart": true,
   "autoStart": true,
   "tts": {
     "enabled": true,

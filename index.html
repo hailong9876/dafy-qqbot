@@ -740,6 +740,20 @@
       <button class="pickbtn" id="ttsPreview">▶ 试听</button>
     </div>
     <div class="uirow">
+      <div class="uinfo"><b>语音服务</b><span>手动启动/停止当前引擎的语音服务</span></div>
+      <div style="display:flex;gap:8px">
+        <button class="pickbtn" id="ttsStartBtn">▶ 启动服务</button>
+        <button class="pickbtn" id="ttsStopBtn">■ 停止</button>
+      </div>
+    </div>
+    <div class="uirow">
+      <div class="uinfo"><b>语音缓存</b><span id="ttsCacheInfo">统计中…</span></div>
+      <div style="display:flex;gap:8px">
+        <button class="pickbtn" id="ttsCacheRefresh">↻ 刷新</button>
+        <button class="pickbtn" id="ttsCacheClear">🗑 清空</button>
+      </div>
+    </div>
+    <div class="uirow">
       <div class="uinfo"><b>合成温度</b><span id="ttsTempVal">0.3</span></div>
       <input type="range" id="ttsTemp" min="0.1" max="1.0" step="0.05" value="0.3">
     </div>
@@ -1881,6 +1895,11 @@ const ttsEl={
   cloneRow:document.getElementById('chatttsCloneRow'),
   hint:document.getElementById('ttsHint'),
   audio:document.getElementById('ttsAudio'),
+  startBtn:document.getElementById('ttsStartBtn'),
+  stopBtn:document.getElementById('ttsStopBtn'),
+  cacheInfo:document.getElementById('ttsCacheInfo'),
+  cacheRefresh:document.getElementById('ttsCacheRefresh'),
+  cacheClear:document.getElementById('ttsCacheClear'),
 };
 let _ttsVoices=[], _ttsBlobUrls=[];
 
@@ -1931,7 +1950,58 @@ async function loadTTS(){
       updateVoiceDesc();
     }
   }catch(e){}
+  loadTtsCache();
 }
+/* ---- 语音缓存统计 ---- */
+function fmtBytes(n){
+  if(n<1024) return n+' B';
+  if(n<1048576) return (n/1024).toFixed(1)+' KB';
+  if(n<1073741824) return (n/1048576).toFixed(1)+' MB';
+  return (n/1073741824).toFixed(2)+' GB';
+}
+async function loadTtsCache(){
+  try{
+    const r=await fetch(QQBOT_API+'/api/tts-cache'); const d=await r.json();
+    if(!d.ok) throw new Error();
+    ttsEl.cacheInfo.textContent=`共 ${d.total.count} 条语音 · 占用 ${fmtBytes(d.total.bytes)}（Edge ${d.edge.count} 条 / ChatTTS ${d.chattts.count} 条）`;
+  }catch(e){ ttsEl.cacheInfo.textContent='桥接未启动，无法统计'; }
+}
+ttsEl.cacheRefresh.onclick=loadTtsCache;
+ttsEl.cacheClear.onclick=async ()=>{
+  if(!confirm('确定删除所有已生成的语音缓存？（下次播放会重新合成）')) return;
+  const btn=ttsEl.cacheClear; const old=btn.textContent;
+  btn.textContent='清理中…'; btn.disabled=true;
+  try{
+    const r=await fetch(QQBOT_API+'/api/tts-cache/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({engine:'all'})});
+    const d=await r.json();
+    btn.textContent=d.ok?`✓ 已删 ${d.removed} 条`:'✗ 部分失败';
+  }catch(e){ btn.textContent='✗ 失败'; }
+  setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2500);
+  loadTtsCache();
+};
+/* ---- 手动启动/停止语音服务 ---- */
+ttsEl.startBtn.onclick=async ()=>{
+  const btn=ttsEl.startBtn; const old=btn.textContent;
+  btn.textContent='启动中…'; btn.disabled=true;
+  ttsEl.status.textContent='正在启动语音服务…'; ttsEl.status.style.color='#ffd680';
+  try{
+    const r=await fetch(QQBOT_API+getTtsApi()+'/start',{method:'POST'});
+    const d=await r.json();
+    btn.textContent=d.ok?'✓ 已启动':'✗ '+(d.error||'失败').slice(0,20);
+  }catch(e){ btn.textContent='✗ 桥接未启动'; }
+  setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2500);
+  loadTTS();
+};
+ttsEl.stopBtn.onclick=async ()=>{
+  const btn=ttsEl.stopBtn; const old=btn.textContent;
+  btn.textContent='停止中…'; btn.disabled=true;
+  try{
+    await fetch(QQBOT_API+getTtsApi()+'/stop',{method:'POST'});
+    btn.textContent='✓ 已停止';
+  }catch(e){ btn.textContent='✗ 失败'; }
+  setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2500);
+  loadTTS();
+};
 function updateVoiceDesc(){
   const v=_ttsVoices.find(x=>x.id===ttsEl.voice.value);
   ttsEl.voiceDesc.textContent=v?v.desc||v.name:'—';

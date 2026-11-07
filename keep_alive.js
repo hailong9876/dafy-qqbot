@@ -24,10 +24,26 @@ const TTS_DIR = path.join(__dirname, 'tts');
 const TTS_PORT = 18903;
 const EDGE_TTS_PORT = 18904;
 const BRIDGE_PORT = 18902;
+const OFM_PORT = 18900;          // 本地免费模型网关（dsh-our-free-model）
+const OFM_DIR = path.resolve(__dirname, '..', 'dsh-our-free-model');
+const OFM_CLI = path.join(OFM_DIR, 'packages', 'standalone', 'cli.mjs');
 const NODE = process.execPath;   // 直接用当前运行的 node，避免硬编码路径
 
 // bridge 的健康接口是 /api/health，TTS 两个服务是 /health
 const BRIDGE_HEALTH = '/api/health';
+
+// 网关 /v1/models 要鉴权：任意 HTTP 响应（含 401）都算活着
+function probePort(port, timeout = 1000) {
+  return new Promise((ok) => {
+    const r = http.get({ host: '127.0.0.1', port, path: '/', timeout }, (res) => { res.resume(); ok(true); });
+    r.on('error', () => ok(false)).on('timeout', () => { r.destroy(); ok(false); });
+  });
+}
+function startOfm() {
+  if (!fs.existsSync(OFM_CLI)) { console.log('[ofm] 未找到 dsh-our-free-model，跳过'); return; }
+  console.log('启动本地模型网关（18900）...');
+  spawnDetached(NODE, [OFM_CLI, '--port', String(OFM_PORT)], { cwd: OFM_DIR, name: 'ofm' });
+}
 
 function probe(port, timeout = 1000, healthPath = '/health') {
   return new Promise((ok) => {
@@ -102,11 +118,16 @@ async function main() {
     if (h) break;
   }
 
+  // 5.5 启本地模型网关（如果没在跑）——机器人没它就不回复
+  if (!(await probePort(OFM_PORT, 800))) startOfm();
+
   // 6. 打印最终状态
   console.log('\n=== 服务状态 ===');
+  const f0 = await probePort(OFM_PORT, 1000);
   const f1 = await probe(BRIDGE_PORT, 1000, BRIDGE_HEALTH);
   const f2 = await probe(TTS_PORT, 1000);
   const f3 = await probe(EDGE_TTS_PORT, 1000);
+  console.log(`模型网关  ${OFM_PORT}: ${f0 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`Bridge    ${BRIDGE_PORT}: ${f1 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`ChatTTS   ${TTS_PORT}: ${f2 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`Edge-TTS  ${EDGE_TTS_PORT}: ${f3 ? '✅ 运行中' : '❌ 挂了'}`);
@@ -118,9 +139,11 @@ async function main() {
     const a = await probe(BRIDGE_PORT, 500, BRIDGE_HEALTH);
     const b = await probe(TTS_PORT, 500);
     const c = await probe(EDGE_TTS_PORT, 500);
+    const d = await probePort(OFM_PORT, 800);
     if (!a) { console.log('[watchdog] bridge 挂了，重启'); spawnDetached(NODE, [BRIDGE], { cwd: QB, name: 'bridge' }); }
     if (!b) { console.log('[watchdog] tts 挂了，重启'); spawnDetached(TTS_PY, [TTS_SCRIPT, '--port', String(TTS_PORT), '--preload'], { cwd: TTS_DIR, name: 'tts' }); }
     if (!c) { console.log('[watchdog] edge-tts 挂了，重启'); spawnDetached(TTS_PY, [path.join(TTS_DIR, 'edge_tts_server.py'), '--port', String(EDGE_TTS_PORT)], { cwd: TTS_DIR, name: 'edge-tts' }); }
+    if (!d) { console.log('[watchdog] 模型网关挂了，重启'); startOfm(); }
   }, 30000);
 }
 

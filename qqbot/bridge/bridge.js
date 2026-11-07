@@ -987,12 +987,15 @@ async function aglStartAll() {
     }
   }
   const c = aglStartComponent('controller');
+  // 记住「已开启」状态，bridge 重启后自动拉起，免得每次重开都掉
+  try { const cfg = readConfig(); cfg.aglAutoStart = true; writeConfig(cfg); } catch (e) {}
   return { ok: true, gateway: g, controller: c };
 }
 function aglStopAll() {
   // 先停 controller 再停 gateway
   const c = aglStopComponent('controller');
   const g = aglStopComponent('gateway');
+  try { const cfg = readConfig(); cfg.aglAutoStart = false; writeConfig(cfg); } catch (e) {}
   return { ok: true, gateway: g, controller: c };
 }
 function status() {
@@ -1128,6 +1131,12 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/api/tts2/status') return send(res, 200, await edgeTtsStatus());
     if (u.pathname === '/api/tts2/start' && req.method === 'POST') return send(res, 200, await edgeTtsStart());
     if (u.pathname === '/api/tts2/stop' && req.method === 'POST') return send(res, 200, await edgeTtsStop());
+    // ── TTS 语音缓存管理（统计/删除）─────────────────────────────────
+    if (u.pathname === '/api/tts-cache') return send(res, 200, ttsCacheInfo());
+    if (u.pathname === '/api/tts-cache/clear' && req.method === 'POST') {
+      const b = await readBody(req);
+      return send(res, 200, ttsCacheClear(b));
+    }
     // 透传到 edge_tts_server.py
     if (u.pathname.startsWith('/api/tts2/')) {
       if (!edgeTtsProc && u.pathname !== '/api/tts2/status' && u.pathname !== '/api/tts2/start') {
@@ -1671,6 +1680,71 @@ function edgeTtsProxy(u, req, res) {
   req.pipe(up);
 }
 
+// ── TTS 语音缓存管理 ─────────────────────────────────────────────
+// Edge-TTS 缓存在 tts/cache_edge/*.mp3，ChatTTS 缓存在 tts/cache/*.wav
+const TTS_CACHE_DIRS = {
+  edge: path.join(TTS_DIR, 'cache_edge'),
+  chattts: path.join(TTS_DIR, 'cache'),
+};
+function ttsCacheInfo() {
+  const out = { ok: true, total: { count: 0, bytes: 0 } };
+  for (const k of Object.keys(TTS_CACHE_DIRS)) {
+    const dir = TTS_CACHE_DIRS[k];
+    const files = [];
+    let bytes = 0;
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (!/\.(mp3|wav)$/i.test(name)) continue;
+        try {
+          const st = fs.statSync(path.join(dir, name));
+          bytes += st.size;
+          files.push({ name, size: st.size, mtime: st.mtimeMs });
+        } catch (e) {}
+      }
+    } catch (e) {}
+    files.sort((a, b) => b.mtime - a.mtime);
+    out[k] = { dir, count: files.length, bytes, files: files.slice(0, 300) };
+    out.total.count += files.length;
+    out.total.bytes += bytes;
+  }
+  return out;
+}
+function ttsCacheClear(b) {
+  const engine = (b && b.engine) || 'all';
+  const file = String((b && b.file) || '');
+  const keys = engine === 'all' ? Object.keys(TTS_CACHE_DIRS) : [engine];
+  let removed = 0, freed = 0, errors = 0;
+  for (const k of keys) {
+    const dir = TTS_CACHE_DIRS[k];
+    if (!dir) { errors++; continue; }
+    if (file) {
+      // 单个删除：basename 校验防路径穿越
+      const safe = path.basename(file);
+      if (safe !== file || !/\.(mp3|wav)$/i.test(safe)) { errors++; continue; }
+      try {
+        const fp = path.join(dir, safe);
+        freed += fs.statSync(fp).size;
+        fs.unlinkSync(fp);
+        removed++;
+      } catch (e) { errors++; }
+      continue;
+    }
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (!/\.(mp3|wav)$/i.test(name)) continue;
+        try {
+          const fp = path.join(dir, name);
+          freed += fs.statSync(fp).size;
+          fs.unlinkSync(fp);
+          removed++;
+        } catch (e) { errors++; }
+      }
+    } catch (e) {}
+  }
+  pushLine('[tts-cache] 清理语音缓存 ' + removed + ' 个，释放 ' + (freed / 1048576).toFixed(1) + ' MB');
+  return { ok: errors === 0, removed, freed, errors };
+}
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log('[bridge] listening on http://127.0.0.1:' + PORT);
   const cfg = readConfig();
@@ -1680,6 +1754,10 @@ server.listen(PORT, '127.0.0.1', () => {
   startScheduler();
   startProactive();
   startMemoryWatch();
+  // AGL 自动拉起（用户在大屏开过「全部启动」后，bridge 重启自动恢复）
+  if (cfg.aglAutoStart) {
+    aglStartAll().then((r) => pushLine(r.ok ? '[agl] 已按上次状态自动启动' : '[agl] 自动启动失败: ' + (r.error || '')));
+  }
   // TTS 自动启动（如果装了 ChatTTS 且 config 没关）
   if (cfg.tts && cfg.tts.enabled !== false && ttsInstalled()) {
     ttsStart().then((r) => pushLine(r.ok ? '[tts] 语音合成服务已启动' : '[tts] 自动启动失败: ' + (r.error || '')));
