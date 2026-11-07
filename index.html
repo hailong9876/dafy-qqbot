@@ -2943,7 +2943,8 @@ const MEMORY_FILE='Conversation_Records/dafy_memory.json';
 const MEMORY_LS_KEY='dafy_memory_facts';
 const HISTORY_LS_KEY='dafyChatHistory';
 const MAX_HISTORY=30;        // 对话历史保留条数
-const MAX_FACTS=80;          // 记忆条目上限（防词元爆炸）
+const MAX_FACTS=Infinity;    // 记忆存储无上限（全量保存，不再挤掉旧记忆）
+const MAX_FACTS_PROMPT=80;   // 注入提示词的最新记忆条数（防词元爆炸）
 
 let memoryFacts=[];          // 持久化的用户记忆条目
 let chatHistory=[];          // 本次会话的对话历史 {role,content}
@@ -3028,10 +3029,10 @@ function addMemoryFact(fact){
   return true;
 }
 
-/** 把记忆转为 system prompt 文本 */
+/** 把记忆转为 system prompt 文本（存储无上限，但只注入最新 MAX_FACTS_PROMPT 条防词元爆炸） */
 function memoryContext(){
   if(!memoryFacts.length) return '';
-  return '\n【关于用户的记忆】\n'+memoryFacts.map(f=>'- '+f).join('\n');
+  return '\n【关于用户的记忆】\n'+memoryFacts.slice(0,MAX_FACTS_PROMPT).map(f=>'- '+f).join('\n');
 }
 
 /** 大肥鱼人格 system prompt */
