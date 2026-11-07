@@ -26,9 +26,12 @@ const EDGE_TTS_PORT = 18904;
 const BRIDGE_PORT = 18902;
 const NODE = process.execPath;   // 直接用当前运行的 node，避免硬编码路径
 
-function probe(port, timeout = 1000) {
+// bridge 的健康接口是 /api/health，TTS 两个服务是 /health
+const BRIDGE_HEALTH = '/api/health';
+
+function probe(port, timeout = 1000, healthPath = '/health') {
   return new Promise((ok) => {
-    http.get({ host: '127.0.0.1', port, path: '/health', timeout }, (r) => {
+    http.get({ host: '127.0.0.1', port, path: healthPath, timeout }, (r) => {
       let d = ''; r.on('data', c => d += c); r.on('end', () => { try { ok(JSON.parse(d).ok === true) } catch { ok(false) } });
     }).on('error', () => ok(false)).on('timeout', () => ok(false));
   });
@@ -59,7 +62,7 @@ async function main() {
 
   // 1. 先检查端口
   const ttsOk = await probe(TTS_PORT, 500);
-  const brOk = await probe(BRIDGE_PORT, 500);
+  const brOk = await probe(BRIDGE_PORT, 500, BRIDGE_HEALTH);
   console.log(`端口检测: bridge=${brOk?'运行中':'空闲'}, tts=${ttsOk?'运行中':'空闲'}`);
 
   // 2. 启 bridge（如果没在跑）
@@ -71,7 +74,7 @@ async function main() {
   // 3. 等 bridge 起来
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 1000));
-    if (await probe(BRIDGE_PORT, 500)) { console.log('bridge 已就绪'); break; }
+    if (await probe(BRIDGE_PORT, 500, BRIDGE_HEALTH)) { console.log('bridge 已就绪'); break; }
   }
 
   // 4. 启 TTS（如果没在跑）
@@ -101,7 +104,7 @@ async function main() {
 
   // 6. 打印最终状态
   console.log('\n=== 服务状态 ===');
-  const f1 = await probe(BRIDGE_PORT, 1000);
+  const f1 = await probe(BRIDGE_PORT, 1000, BRIDGE_HEALTH);
   const f2 = await probe(TTS_PORT, 1000);
   const f3 = await probe(EDGE_TTS_PORT, 1000);
   console.log(`Bridge    ${BRIDGE_PORT}: ${f1 ? '✅ 运行中' : '❌ 挂了'}`);
@@ -112,7 +115,7 @@ async function main() {
 
   // 7. 保活
   setInterval(async () => {
-    const a = await probe(BRIDGE_PORT, 500);
+    const a = await probe(BRIDGE_PORT, 500, BRIDGE_HEALTH);
     const b = await probe(TTS_PORT, 500);
     const c = await probe(EDGE_TTS_PORT, 500);
     if (!a) { console.log('[watchdog] bridge 挂了，重启'); spawnDetached(NODE, [BRIDGE], { cwd: QB, name: 'bridge' }); }

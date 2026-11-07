@@ -1345,8 +1345,8 @@ applyUI();
 })();
 
 /* ============ 网关 / 对话 ============ */
-const GATEWAY='http://127.0.0.1:18899';
-const GW_KEY='ofm-u5iYc2GQAeJMhgme3HE7ocXUy_9hdzXb';
+const GATEWAY='http://127.0.0.1:18900';
+const GW_KEY='ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg';
 const APP_VERSION='1.2.5';   // 版本号：升级时同步修改这里与 installer/VERSION
 const EL={
   gwPill:document.getElementById('gwPill'),
@@ -2228,6 +2228,7 @@ setInterval(async()=>{
     lastAutoMsgAt=st.lastSentAt;
     appendMsg('bot',st.lastText);
     addTL('ok','大肥鱼主动发来一条消息','auto');
+    speakOnBotReply(st.lastText);
   }catch(e){}
 },60000);
 

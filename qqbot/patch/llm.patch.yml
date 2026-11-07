@@ -11,4 +11,4 @@
 - id: agent-default-model
   config:
     provider: deepseek-official
-    model: opencode/deepseek-v4.1-flash-free
+    model: deepseek-v4.1-flash-free
