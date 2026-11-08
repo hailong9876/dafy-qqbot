@@ -3,9 +3,7 @@ tts/cache/
 tts/cache_edge/
 tts/*.log
 tts/_probe.mp3
-qqbot/.dsh/sessions/
-qqbot/.dsh/storages/
-qqbot/.dsh/nekowhale-stickers/
+qqbot/.dsh/
 qqbot/bot.log
 qqbot/proactive-state.json
 qqbot/patch/debug.txt
