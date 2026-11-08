@@ -40,6 +40,9 @@ let page = null;         // 当前页面
 let launching = null;    // 防止并发重复启动
 let current = null;      // 当前视频信息缓存
 let lastError = '';
+let intentionalClose = false; // 主动关闭标记（/api/close、定期重开时不触发自动拉起）
+let feedCount = 0;            // 本次浏览器会话已刷视频数
+const MAX_FEED_PER_BROWSER = 5; // 每刷 5 条主动重开浏览器，清掉抖音页面累积的内存防崩
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[video]', ...a);
@@ -88,8 +91,21 @@ async function launch() {
       cdpSession = null; liveBuf = null;
       screencastOn = false; screencastHandler = null;
       log('浏览器已关闭');
+      // 非主动关闭（崩溃等）时自动拉起，避免大屏一直黑屏
+      if (!intentionalClose) {
+        log('浏览器意外关闭，3 秒后自动重开');
+        setTimeout(() => {
+          if (!ctx && !launching) {
+            launch()
+              .then(() => openHome())
+              .catch((e) => { lastError = '浏览器自动重开失败: ' + e.message; log(lastError); });
+          }
+        }, 3000);
+      }
     });
     log('浏览器已启动');
+    intentionalClose = false;
+    feedCount = 0;
     // 默认把窗口移到屏幕外：后台播放，不遮挡大屏
     await setWindowVisible(false);
     return ctx;
@@ -116,6 +132,8 @@ async function openHome() {
 }
 
 async function closeBrowser() {
+  intentionalClose = true;
+  feedCount = 0;
   await stopScreencast();
   if (ctx) {
     try { await ctx.close(); } catch {}
@@ -985,6 +1003,11 @@ async function handle(req, res) {
 
     if (path === '/api/next') {
       const body = await readBody(req);
+      // 每刷满 5 条主动重开浏览器，清内存防崩
+      if (feedCount >= MAX_FEED_PER_BROWSER) {
+        log(`已刷 ${feedCount} 条，主动重开浏览器释放内存`);
+        await closeBrowser();
+      }
       let p = await openHome();
       await p.bringToFront().catch(() => {});
       if (await loginWallVisible(p)) {
@@ -1021,7 +1044,8 @@ async function handle(req, res) {
       }
       const snap = await snapshotCurrent(p);
       lastError = '';
-      return json(res, 200, { ok: true, loggedIn: await isLoggedIn(), switched, video: snap });
+      feedCount++;
+      return json(res, 200, { ok: true, loggedIn: await isLoggedIn(), switched, feedCount, video: snap });
     }
 
     if (path === '/api/live.jpg') {
