@@ -9,6 +9,7 @@ qqbot/.dsh/nekowhale-stickers/
 qqbot/bot.log
 qqbot/proactive-state.json
 qqbot/patch/debug.txt
+qqbot/patch/whitelist.patch.yml
 video-server/.douyin-profile/
 video-server/state.json
 video-server/.debug-*

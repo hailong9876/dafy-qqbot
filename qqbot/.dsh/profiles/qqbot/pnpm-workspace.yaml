@@ -1,7 +1,0 @@
-packages:
-  - .
-
-nodeLinker: hoisted
-autoInstallPeers: false
-minimumReleaseAgeExclude:
-  - '@tencent-connect/dsh-qqbot@0.5.5'
