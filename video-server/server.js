@@ -157,9 +157,9 @@ async function loginWallVisible(p) {
 async function readVideoInfo(p) {
   const info = await p.evaluate(() => {
     const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    const first = (sels) => {
+    const firstIn = (root, sels) => {
       for (const s of sels) {
-        const el = document.querySelector(s);
+        const el = (root || document).querySelector(s);
         const t = clean(el?.innerText || el?.textContent);
         if (t) return t;
       }
@@ -169,39 +169,106 @@ async function readVideoInfo(p) {
       const el = document.querySelector(`meta[property="${prop}"], meta[name="${prop}"]`);
       return clean(el?.getAttribute('content'));
     };
-    const title = first([
+
+    // 正在播放的那一个 video：可见面积最大、未暂停的优先。
+    // 抖音推荐页同时挂着多张卡片和预加载视频，取「第一个」会读到上一条的内容
+    let active = null;
+    let bestScore = -1;
+    for (const el of document.querySelectorAll('video')) {
+      const r = el.getBoundingClientRect();
+      const vis =
+        Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) *
+        Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+      if (vis < 120 * 120) continue;
+      let score = vis;
+      if (!el.paused) score *= 3;
+      if (el.readyState >= 2) score *= 1.15;
+      if (score > bestScore) {
+        bestScore = score;
+        active = el;
+      }
+    }
+
+    // 标题/简介/UP主只在当前 video 所在的容器里读，容器外的一律不认
+    const INFO_SELS = [
       '[data-e2e="video-desc"]',
       '[data-e2e="video-title"]',
       '[class*="video-info-title"]',
       '[class*="videoDesc"]',
-      'h1',
-    ]) || meta('og:title') || clean(document.title).replace(/ - 抖音.*$/, '');
-    const desc = first([
-      '[data-e2e="video-desc"]',
-      '[class*="video-desc"]',
-      '[class*="videoInfoDesc"]',
-    ]) || meta('og:description');
-    const author = first([
       '[data-e2e="feed-video-nickname"]',
       '[data-e2e="video-author"]',
       '[data-e2e="video-author-name"]',
       '[class*="author-name"]',
       '[class*="videoAuthor"]',
-    ]);
-    const comments = [];
-    const nodes = document.querySelectorAll(
-      '[data-e2e="comment-item"], [class*="comment-item"], [class*="CommentItem"]'
-    );
-    for (const n of [...nodes].slice(0, 10)) {
-      const t = clean(n.innerText);
-      if (t) comments.push(t.slice(0, 120));
+    ];
+    let scope = null;
+    if (active) {
+      let node = active.parentElement;
+      for (let k = 0; k < 8 && node && node !== document.body; k++) {
+        if (INFO_SELS.some((s) => node.querySelector(s))) {
+          scope = node;
+          break;
+        }
+        node = node.parentElement;
+      }
+      if (!scope) {
+        // 没找到信息容器：退到弹窗/卡片的最外层
+        let n = active.parentElement;
+        for (let k = 0; k < 8 && n && n.parentElement && n.parentElement !== document.body; k++) {
+          n = n.parentElement;
+        }
+        scope = n || active.parentElement;
+      }
     }
-    if (!comments.length) {
-      const list = document.querySelector('[data-e2e="comment-list"]');
-      const t = clean(list?.innerText);
-      if (t) comments.push(t.slice(0, 300));
+
+    const titleSels = [
+      '[data-e2e="video-desc"]',
+      '[data-e2e="video-title"]',
+      '[class*="video-info-title"]',
+      '[class*="videoDesc"]',
+      'h1',
+    ];
+    const descSels = [
+      '[data-e2e="video-desc"]',
+      '[class*="video-desc"]',
+      '[class*="videoInfoDesc"]',
+    ];
+    const authorSels = [
+      '[data-e2e="feed-video-nickname"]',
+      '[data-e2e="video-author"]',
+      '[data-e2e="video-author-name"]',
+      '[class*="author-name"]',
+      '[class*="videoAuthor"]',
+    ];
+    const title = firstIn(scope, titleSels) || meta('og:title') || clean(document.title).replace(/ - 抖音.*$/, '');
+    const desc = firstIn(scope, descSels) || meta('og:description');
+    const author = firstIn(scope, authorSels);
+
+    const collectComments = (root) => {
+      const out = [];
+      if (!root) return out;
+      const nodes = root.querySelectorAll(
+        '[data-e2e="comment-item"], [class*="comment-item"], [class*="CommentItem"]'
+      );
+      for (const n of [...nodes].slice(0, 10)) {
+        const t = clean(n.innerText);
+        if (t) out.push(t.slice(0, 120));
+      }
+      if (!out.length) {
+        const list = root.querySelector('[data-e2e="comment-list"]');
+        const t = clean(list?.innerText);
+        if (t) out.push(t.slice(0, 300));
+      }
+      return out;
+    };
+    // 评论也只从当前视频容器或它所在的弹窗里取，不去碰别的卡片
+    let comments = collectComments(scope);
+    if (!comments.length && scope && scope.closest) {
+      const dialog = scope.closest('[role="dialog"], [class*="modal"], [class*="Modal"]');
+      if (dialog) comments = collectComments(dialog);
     }
-    const v = document.querySelector('video');
+
+    const v = active || document.querySelector('video');
     return {
       title,
       desc,
@@ -410,6 +477,7 @@ async function snapshotCurrent(p) {
   const shot = await screenshot(p);
   current = {
     ...info,
+    key: await videoKey(p),
     shot,
     shotAt: Date.now(),
   };
@@ -483,39 +551,27 @@ async function isPlaying(p) {
   }).catch(() => false);
 }
 
-async function clickNext(p) {
-  // 抖音播放器右侧有「下一条」箭头，优先点它；再退回键盘/滚轮
+// 当前视频的唯一标识：播放器切换时 modal_id 会变，用它判断抖音有没有自己跳到下一条
+async function videoKey(p) {
+  return await p.evaluate(() => {
+    const m = /[?&](?:modal_id|vid)=(\d+)/.exec(location.href);
+    return m ? m[1] : location.href;
+  }).catch(() => '');
+}
+
+// 只切一次：抖音里一次 ArrowDown / 一次滚轮就是一条，连按会一次划走两条
+async function switchOnce(p) {
   const arrow = p.locator('[data-e2e="video-switch-next-arrow"]').first();
   try {
-    if (await arrow.isVisible({ timeout: 1000 })) {
+    if (await arrow.isVisible({ timeout: 1500 })) {
       await arrow.click({ timeout: 4000 });
       await sleep(1800);
-      return;
+      return 'arrow';
     }
   } catch {}
-  await p.keyboard.press('ArrowDown');
-  await sleep(900);
-  await p.keyboard.press('ArrowDown');
-  await sleep(1200);
-  const nextSels = [
-    '[data-e2e="video-next"]',
-    '[class*="next-video"]',
-    '[aria-label*="下一条"]',
-    '[title*="下一条"]',
-  ];
-  for (const s of nextSels) {
-    try {
-      const el = p.locator(s).first();
-      if (await el.isVisible({ timeout: 800 })) {
-        await el.click({ timeout: 3000 });
-        await sleep(1500);
-        return;
-      }
-    } catch {}
-  }
-  try {
-    await p.mouse.wheel(0, 600);
-  } catch {}
+  await p.keyboard.press('ArrowDown').catch(() => {});
+  await sleep(1800);
+  return 'key';
 }
 
 async function openFirstVideo(p, index = 0) {
@@ -531,6 +587,9 @@ async function openFirstVideo(p, index = 0) {
 /* ---------------- 评论 ---------------- */
 
 const COMMENT_INPUT_SELS = [
+  // 精选页/新版：编辑器是「点输入栏才创建」的 DraftEditor
+  '[class*="comment-input-container"] [contenteditable]:not([contenteditable="false"])',
+  '[class*="comment-input-container"] .public-DraftEditor-content',
   '[class*="comment-input"] [contenteditable]:not([contenteditable="false"])',
   '[class*="comment-input"] .public-DraftEditor-content',
   '[class*="comment"] .public-DraftEditor-content',
@@ -540,6 +599,16 @@ const COMMENT_INPUT_SELS = [
   'textarea[placeholder*="评论"]',
   '[data-e2e="comment-input"] [contenteditable]',
 ];
+
+// 评论区面板是否已经展开（用于避免重复点图标把面板又关掉）
+async function commentPanelOpen(p) {
+  for (const s of ['[class*="comment-mainContent"]', '[class*="comment-header-inner-container"]']) {
+    try {
+      if (await p.locator(s).first().isVisible({ timeout: 300 })) return true;
+    } catch {}
+  }
+  return false;
+}
 
 async function findCommentInput(p) {
   for (const s of COMMENT_INPUT_SELS) {
@@ -554,13 +623,16 @@ async function findCommentInput(p) {
           const txt = (e.innerText || '').slice(0, 40);
           let par = e.parentElement;
           let inComment = false;
-          for (let k = 0; k < 6 && par; k++) {
+          for (let k = 0; k < 8 && par; k++) {
             if (/comment/i.test(String(par.className || ''))) { inComment = true; break; }
             par = par.parentElement;
           }
           const r = e.getBoundingClientRect();
-          return { ph, txt, inComment, w: r.width, h: r.height };
+          // 底部弹幕条绝不能当成评论框
+          const inDanmaku = !!e.closest('[data-e2e="danmaku-container"], [class*="danmaku"]');
+          return { ph, txt, inComment, inDanmaku, w: r.width, h: r.height };
         });
+        if (info.inDanmaku || /弹幕/.test(info.ph + ' ' + info.txt)) continue;
         // 抖音的占位文案是「留下你的精彩评论吧」，输入后占位会消失，
         // 所以除了文案，只要在 comment 容器里也算通过
         if (/评论|说点什么|留下|善语/.test(info.ph + ' ' + info.txt) || info.inComment) return el;
@@ -572,29 +644,63 @@ async function findCommentInput(p) {
 
 async function openCommentPanel(p) {
   if (await findCommentInput(p)) return true;
-  // 只点一次：多个选择器可能指向同一个图标，重复点击会把刚展开的评论区又关掉
-  const icon = p.locator([
-    '[data-e2e="feed-comment-icon"]',
-    '[data-e2e*="comment-icon"]',
-    '[class*="comment-icon"]',
-    '[aria-label*="评论"]',
-    '[title*="评论"]',
-  ].join(',')).first();
-  try {
-    if (await icon.isVisible({ timeout: 1200 })) {
-      await icon.click({ timeout: 4000 });
-      await sleep(3000);
+
+  // 1) 右侧评论图标：精选页唯一入口。单独定位，避免组合选择器 .first() 命中隐藏元素
+  if (!(await commentPanelOpen(p))) {
+    let clicked = false;
+    const icon = p.locator('[data-e2e="feed-comment-icon"]').first();
+    try {
+      if (await icon.isVisible({ timeout: 1500 })) {
+        await icon.click({ timeout: 4000 });
+        clicked = true;
+      }
+    } catch {}
+    if (!clicked) {
+      for (const s of [
+        '[data-e2e*="comment-icon"]',
+        '[class*="comment-icon"]',
+        '[aria-label*="评论"]',
+        '[title*="评论"]',
+      ]) {
+        try {
+          const l = p.locator(s).first();
+          if (await l.isVisible({ timeout: 700 })) {
+            await l.click({ timeout: 3000 });
+            clicked = true;
+            break;
+          }
+        } catch {}
+      }
     }
-  } catch {}
+    if (clicked) await sleep(2600);
+  }
   if (await findCommentInput(p)) return true;
-  // 评论区展开了，但输入框还是「留下你的精彩评论吧」占位符，点一下才会变成可输入状态
-  const box = p.locator('[class*="comment-input-inner-container"], [class*="comment-input"]').first();
+
+  // 2) 新版评论输入栏的编辑器是「点击后才创建」，点一下输入栏容器
+  for (const s of [
+    '[class*="comment-input-container"]',
+    '[class*="comment-input-inner-container"]',
+    '[class*="comment-input"]',
+  ]) {
+    try {
+      const box = p.locator(s).last();
+      if (await box.isVisible({ timeout: 800 })) {
+        await box.click({ timeout: 4000 });
+        await sleep(1500);
+        if (await findCommentInput(p)) return true;
+      }
+    } catch {}
+  }
+
+  // 3) 兜底：直接点「留下你的精彩评论吧」占位文案
   try {
-    if (await box.isVisible({ timeout: 1200 })) {
-      await box.click({ timeout: 4000 });
-      await sleep(2000);
+    const ph = p.locator('text=留下你的精彩评论吧').first();
+    if (await ph.isVisible({ timeout: 800 })) {
+      await ph.click({ timeout: 3000 });
+      await sleep(1500);
     }
   } catch {}
+
   return !!(await findCommentInput(p));
 }
 
@@ -619,7 +725,7 @@ async function clickCommentSend(p) {
   }).catch(() => false);
 }
 
-async function typeComment(p, text) {
+async function typeComment(p, text, expectKey) {
   const steps = [];
   const input = await findCommentInput(p);
   if (!input) return { ok: false, reason: '没有找到评论输入框（可能没有登录，或评论区未展开）', steps };
@@ -654,6 +760,17 @@ async function typeComment(p, text) {
     return { ok: false, reason: '文字没能进入评论框（抖音页面结构可能变了）', steps };
   }
   steps.push('文字已填入');
+
+  // 发送前再确认一次：生成+输入这几秒里抖音可能已经自己跳到下一条，
+  // 这时按 Enter 就会把给上一条写的评论贴到这条视频上
+  if (expectKey && (await videoKey(p)) !== expectKey) {
+    try {
+      await input.click({ timeout: 3000 });
+      await p.keyboard.press('Control+A');
+      await p.keyboard.press('Delete');
+    } catch {}
+    return { ok: false, stale: true, reason: '视频已经切换，本条评论作废', steps };
+  }
 
   // 发送：抖音评论区 Enter 即发送
   await p.keyboard.press('Enter');
@@ -879,26 +996,22 @@ async function handle(req, res) {
       }
       // 已经在播放器里就直接下一条；否则先点开一个视频卡片
       const playing = await isPlaying(p);
-      const beforeUrl = p.url();
+      const from = typeof body.from === 'string' ? body.from : '';
+      const mode = body.mode === 'auto' ? 'auto' : 'force';
+      const before = playing ? await videoKey(p) : '';
+      let switched = false;
       if (!playing) {
         const opened = await openFirstVideo(p, Number(body.index) || 0);
         if (!opened.ok) {
           lastError = opened.reason || '';
           return json(res, 200, { ok: false, needLogin: !!opened.needLogin, reason: opened.reason });
         }
+        switched = true;
+      } else if (mode === 'auto' && from && before && before !== from) {
+        // 抖音已经自己播到下一条了：不再切，直接接住当前视频，避免一次划两条
       } else {
-        await clickNext(p);
-        await sleep(2000);
-        if (p.url() === beforeUrl) {
-          // 键盘下移没生效：点一下播放器再试，最后用滚轮
-          await p.locator('video').first().click({ timeout: 3000 }).catch(() => {});
-          await p.keyboard.press('ArrowDown');
-          await sleep(1500);
-          if (p.url() === beforeUrl) {
-            await p.mouse.wheel(0, 700);
-            await sleep(2000);
-          }
-        }
+        await switchOnce(p);
+        switched = true;
       }
       await sleep(1500);
       await ensurePlaying(p);   // 抖音默认会自动暂停，主动播起来
@@ -908,7 +1021,7 @@ async function handle(req, res) {
       }
       const snap = await snapshotCurrent(p);
       lastError = '';
-      return json(res, 200, { ok: true, loggedIn: await isLoggedIn(), video: snap });
+      return json(res, 200, { ok: true, loggedIn: await isLoggedIn(), switched, video: snap });
     }
 
     if (path === '/api/live.jpg') {
@@ -962,6 +1075,7 @@ async function handle(req, res) {
         const found = await openCommentPanel(p);
         return json(res, 200, { ok: true, dry: true, inputFound: found });
       }
+      const expectKey = String(body.expectKey || '').trim();
       const text = String(body.text || '').trim();
       if (!text) return json(res, 200, { ok: false, reason: '评论内容为空' });
       if (text.length > 60) return json(res, 200, { ok: false, reason: '评论太长（最多 60 字）' });
@@ -971,10 +1085,14 @@ async function handle(req, res) {
 
       const p = await ensurePage();
       await p.bringToFront().catch(() => {});
+      // 评论是给「快照里那条视频」写的；打开评论区前先确认页面还停在同一条
+      if (expectKey && (await videoKey(p)) !== expectKey) {
+        return json(res, 200, { ok: false, stale: true, reason: '视频已经切换，本条评论作废' });
+      }
       if (!(await openCommentPanel(p))) {
         return json(res, 200, { ok: false, reason: '评论区打不开（可能当前没在播放视频）' });
       }
-      const r = await typeComment(p, text);
+      const r = await typeComment(p, text, expectKey);
       if (!r.ok) return json(res, 200, r);
 
       const now = today();
@@ -1043,6 +1161,276 @@ async function handle(req, res) {
       // 清掉草稿，不发送
       try { await input.click({ timeout: 2000 }); await p.keyboard.press('Control+A'); await p.keyboard.press('Delete'); } catch {}
       return json(res, 200, { ok: true, inputFound: true, typed, candidates, near, bar });
+    }
+
+    // 只读诊断：把当前页面里跟「评论」有关的真实结构倒出来
+    // （抖音改版后 data-e2e / class 会变，靠这个一次性看清按钮和输入框）
+    if (path === '/api/debug/dom') {
+      const p = await ensurePage();
+      await p.bringToFront().catch(() => {});
+      const d = await p.evaluate(() => {
+        const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+        const box = (el) => {
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        const info = (el) => ({
+          tag: el.tagName,
+          cls: String(el.className || '').slice(0, 140),
+          e2e: el.getAttribute('data-e2e') || '',
+          aria: (el.getAttribute('aria-label') || '').slice(0, 40),
+          title: (el.getAttribute('title') || '').slice(0, 40),
+          txt: clean(el.innerText).slice(0, 40),
+          svg: !!el.querySelector('svg'),
+          ...box(el),
+          html: String(el.outerHTML || '').slice(0, 600),
+        });
+        const seen = new Set();
+        const push = (arr, el, max) => {
+          const r = el.getBoundingClientRect();
+          if (r.width * r.height < 60) return;
+          const k = el.tagName + String(el.className) + Math.round(r.x) + Math.round(r.y);
+          if (seen.has(k)) return;
+          seen.add(k);
+          if (arr.length < max) arr.push(info(el));
+        };
+        const candidates = [];
+        for (const el of document.querySelectorAll(
+          '[data-e2e], [class*="comment"], [class*="Comment"], [aria-label*="评论"], [title*="评论"]'
+        )) {
+          push(candidates, el, 70);
+        }
+        // 右侧竖排按钮（x 贴着右边）
+        const rightButtons = [];
+        for (const el of document.querySelectorAll('*')) {
+          const r = el.getBoundingClientRect();
+          if (r.x < innerWidth - 110 || r.width < 24 || r.width > 110 || r.height < 24 || r.height > 110) continue;
+          if (!el.querySelector('svg') && !/评论|comment/i.test(String(el.className || '') + (el.getAttribute('aria-label') || ''))) continue;
+          push(rightButtons, el, 25);
+        }
+        const editables = [];
+        for (const el of document.querySelectorAll('[contenteditable], textarea, input')) {
+          const r = el.getBoundingClientRect();
+          if (r.width < 40 || r.height < 10) continue;
+          if (editables.length >= 20) break;
+          editables.push({
+            ...info(el),
+            ce: el.getAttribute('contenteditable'),
+            ph: el.getAttribute('placeholder') || '',
+          });
+        }
+        return { url: location.href, vw: innerWidth, vh: innerHeight, candidates, rightButtons, editables };
+      }).catch((e) => ({ err: String(e).slice(0, 200) }));
+      return json(res, 200, { ok: true, ...d });
+    }
+
+    // 只读诊断（带一次点击）：点开精选页的评论图标，把展开后的真实面板结构倒出来
+    // 结果同时写盘 .debug-comment.json，避免 PowerShell 展开 JSON 时字段丢失
+    if (path === '/api/debug/comment') {
+      const p = await ensurePage();
+      await p.bringToFront().catch(() => {});
+      const before = { url: p.url(), key: await videoKey(p) };
+      const iconSel = '[data-e2e="feed-comment-icon"]';
+      const iconInfo = await p.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const chain = [];
+        let n = el;
+        for (let i = 0; i < 5 && n; i++) {
+          chain.push({
+            tag: n.tagName,
+            cls: String(n.className || '').slice(0, 90),
+            e2e: n.getAttribute('data-e2e') || '',
+          });
+          n = n.parentElement;
+        }
+        return {
+          x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+          txt: String(el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+          html: String(el.outerHTML || '').slice(0, 800),
+          chain,
+        };
+      }, iconSel).catch((e) => ({ err: String(e).slice(0, 200) }));
+
+      let clicked = false;
+      try {
+        const icon = p.locator(iconSel).first();
+        if (await icon.isVisible({ timeout: 1500 })) {
+          await icon.click({ timeout: 4000 });
+          clicked = true;
+          await sleep(2600);
+        }
+      } catch (e) {
+        clicked = 'err:' + String(e).slice(0, 120);
+      }
+
+      const after = await p.evaluate(() => {
+        const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+        const box = (el) => {
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        const editables = [];
+        for (const el of document.querySelectorAll('[contenteditable], textarea, input')) {
+          const r = el.getBoundingClientRect();
+          if (r.width < 20 || r.height < 8) continue;
+          editables.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 120),
+            ce: el.getAttribute('contenteditable'),
+            ph: el.getAttribute('placeholder') || '',
+            txt: clean(el.innerText).slice(0, 40),
+            inDanmaku: !!el.closest('[data-e2e="danmaku-container"], [class*="danmaku"]'),
+            ...box(el),
+            html: String(el.outerHTML || '').slice(0, 400),
+          });
+          if (editables.length >= 24) break;
+        }
+        const picks = [];
+        const seen = new Set();
+        for (const el of document.querySelectorAll(
+          '[data-e2e], [class*="comment"], [class*="Comment"], [class*="danmaku"], [class*="input"], [class*="editor"], [class*="Editor"], [class*="Draft"], [class*="draft"]'
+        )) {
+          const r = el.getBoundingClientRect();
+          if (r.width * r.height < 60) continue;
+          const k = el.tagName + String(el.className) + Math.round(r.x) + Math.round(r.y);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          if (picks.length >= 60) break;
+          picks.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 140),
+            e2e: el.getAttribute('data-e2e') || '',
+            ph: el.getAttribute('placeholder') || '',
+            txt: clean(el.innerText).slice(0, 40),
+            ...box(el),
+            html: String(el.outerHTML || '').slice(0, 500),
+          });
+        }
+        const sendBtns = [];
+        for (const el of document.querySelectorAll('div, span, button')) {
+          if (clean(el.textContent) !== '发送') continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 2 || r.height < 2) continue;
+          sendBtns.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 120),
+            inDanmaku: !!el.closest('[data-e2e="danmaku-container"], [class*="danmaku"]'),
+            ...box(el),
+          });
+          if (sendBtns.length >= 15) break;
+        }
+        const ceCount = document.querySelectorAll('[contenteditable]').length;
+
+        // 评论区面板本体：从 comment-mainContent 往上找容器，整段 HTML 倒出来看底部输入栏
+        const panel = document.querySelector('[class*="comment-mainContent"], [class*="comment-header-inner-container"]');
+        let root = panel;
+        for (let i = 0; i < 4 && root && root.parentElement; i++) root = root.parentElement;
+        const panelHtml = root ? String(root.outerHTML || '') : '';
+        const panelHtmlHead = panelHtml.slice(0, 3000);
+        const panelHtmlTail = panelHtml.slice(-5000);
+
+        // 全页找「写评论」占位文案（评论输入栏即使不是 contenteditable，也会有这段文字）
+        const phEls = [];
+        for (const el of document.querySelectorAll('div, span, p, button, label')) {
+          const t = clean(el.textContent);
+          if (!t || t.length > 60) continue;
+          if (!/留下|精彩评论|善语|说点什么|发一条/.test(t)) continue;
+          if (el.querySelector('div, span, p, button, label')) continue;
+          const r = el.getBoundingClientRect();
+          phEls.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 120),
+            txt: t,
+            inDanmaku: !!el.closest('[data-e2e="danmaku-container"], [class*="danmaku"]'),
+            x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+          });
+          if (phEls.length >= 20) break;
+        }
+
+        // 不看尺寸，所有输入类元素都列出来（含隐藏的）
+        const allEditables = [];
+        for (const el of document.querySelectorAll('input, textarea, [contenteditable]')) {
+          const r = el.getBoundingClientRect();
+          const st = getComputedStyle(el);
+          allEditables.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 120),
+            ce: el.getAttribute('contenteditable'),
+            ph: el.getAttribute('placeholder') || '',
+            type: el.getAttribute('type') || '',
+            vis: st.display !== 'none' && st.visibility !== 'hidden',
+            inDanmaku: !!el.closest('[data-e2e="danmaku-container"], [class*="danmaku"]'),
+            x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+          });
+          if (allEditables.length >= 40) break;
+        }
+
+        // 面板底部区域（输入栏通常贴底）
+        const bottomEls = [];
+        if (root) {
+          for (const el of root.querySelectorAll('*')) {
+            const r = el.getBoundingClientRect();
+            if (r.width < 40 || r.height < 16) continue;
+            if (r.bottom < innerHeight - 160) continue;
+            bottomEls.push({
+              tag: el.tagName,
+              cls: String(el.className || '').slice(0, 120),
+              txt: clean(el.textContent).slice(0, 40),
+              x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+            });
+            if (bottomEls.length >= 40) break;
+          }
+        }
+
+        return {
+          url: location.href, vw: innerWidth, vh: innerHeight, ceCount,
+          editables, picks, sendBtns,
+          panelHtmlLen: panelHtml.length, panelHtmlHead, panelHtmlTail,
+          allEditables, bottomEls, phEls,
+        };
+      }).catch((e) => ({ err: String(e).slice(0, 200) }));
+
+      const out = { ok: true, before, clicked, icon: iconInfo, after };
+
+      // 第二步：面板展开后，点一下底部输入栏，看编辑器是否是「点击后才出现」
+      let clickedInput = false;
+      try {
+        const box2 = p.locator('[class*="comment-input-container"], [class*="comment-input"]').first();
+        if (await box2.isVisible({ timeout: 1500 })) {
+          await box2.click({ timeout: 4000 });
+          clickedInput = true;
+          await sleep(1600);
+        }
+      } catch (e) {
+        clickedInput = 'err:' + String(e).slice(0, 120);
+      }
+      const after2 = await p.evaluate(() => {
+        const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+        const out = { ceCount: document.querySelectorAll('[contenteditable]').length, editables: [] };
+        for (const el of document.querySelectorAll('input, textarea, [contenteditable]')) {
+          const r = el.getBoundingClientRect();
+          out.editables.push({
+            tag: el.tagName,
+            cls: String(el.className || '').slice(0, 120),
+            ce: el.getAttribute('contenteditable'),
+            ph: el.getAttribute('placeholder') || '',
+            txt: clean(el.innerText).slice(0, 40),
+            inDanmaku: !!el.closest('[data-e2e="danmaku-container"], [class*="danmaku"]'),
+            inComment: !!el.closest('[class*="comment-input"], [class*="comment-mainContent"]'),
+            x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+          });
+          if (out.editables.length >= 30) break;
+        }
+        return out;
+      }).catch((e) => ({ err: String(e).slice(0, 200) }));
+      out.clickedInput = clickedInput;
+      out.after2 = after2;
+      await p.screenshot({ path: join(HERE, '.debug-comment.png') }).catch(() => {});
+
+      await writeFile(join(HERE, '.debug-comment.json'), JSON.stringify(out, null, 2), 'utf8').catch(() => {});
+      return json(res, 200, out);
     }
 
     if (path === '/api/window') {

@@ -3498,6 +3498,7 @@ let vidRunning=false, vidTimer=null, vidBusy=false;
 let vidLiveOn=false, vidLiveTimer=null, vidLiveFail=0, vidLiveBroken=false;
 let vidSkipStreak=0, vidSkipTotal=0;
 let vidNextDelay=0;
+let vidLastKey='';   // 上一条已处理视频的 modal_id，用来识别抖音自己跳过去的下一条
 
 async function vidApi(path,body,method){
   const opt={method:method||'POST',headers:{'Content-Type':'application/json'}};
@@ -3692,6 +3693,40 @@ function vidCleanComment(t){
   if(s.length>40) s=s.slice(0,40);
   return s;
 }
+// 把 JSON 里抠出的字符串还原转义（\" \\ 之类）
+const vidJsonStr=(s)=>{ try{ return JSON.parse('"'+String(s)+'"'); }catch(e){ return String(s); } };
+function vidParseJudge(txt){
+  const s=String(txt||'').trim();
+  // 1) 标准 JSON
+  const m=s.match(/\{[\s\S]*\}/);
+  if(m){
+    try{
+      const o=JSON.parse(m[0]);
+      if(o && (typeof o.skip!=='undefined' || typeof o.comment!=='undefined')){
+        return {
+          skip:!!o.skip,
+          reason:String(o.reason||'').slice(0,20),
+          comment:o.skip?'':vidCleanComment(o.comment),
+          parsed:true
+        };
+      }
+    }catch(e){}
+  }
+  // 2) C2 宽松解析：输出被截断 / 包了 markdown 时，直接抠字段
+  const skipM=s.match(/"skip"\s*:\s*(true|false)/i);
+  const reasonM=s.match(/"reason"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  const commentM=s.match(/"comment"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if(skipM||reasonM||commentM){
+    const skip=skipM?/true/i.test(skipM[1]):false;
+    return {
+      skip:skip,
+      reason:reasonM?vidJsonStr(reasonM[1]).slice(0,20):'',
+      comment:(skip||!commentM)?'':vidCleanComment(vidJsonStr(commentM[1])),
+      parsed:true, loose:true
+    };
+  }
+  return {skip:false, reason:'', comment:'', parsed:false};
+}
 async function vidWriteComment(v){
   const c=aiConf();
   const url=aiChatUrl(c);
@@ -3710,49 +3745,55 @@ async function vidWriteComment(v){
 严格只输出 JSON（不要 markdown、不要解释）：
 {"skip":true,"reason":"12字内理由","comment":""}
 skip 为 false 时，comment 写一条 20 字内的口语化短评：像真人、带点可爱/傲娇，只聊视频内容，不 @ 任何人、不带链接、不提 AI。`;
-  const r=await fetch(url,{
+  const body={
+    model:model,
+    messages:[{role:'system',content:PERSONA},{role:'user',content:prompt}],
+    stream:false,
+    max_tokens:600,
+    temperature:0.7,
+    response_format:{type:'json_object'},
+    think:c.mode==='oll'?false:undefined
+  };
+  let r=await fetch(url,{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({
-      model:model,
-      messages:[{role:'system',content:PERSONA},{role:'user',content:prompt}],
-      stream:false,
-      max_tokens:300,
-      temperature:0.7,
-      think:c.mode==='oll'?false:undefined
-    })
+    body:JSON.stringify(body)
   });
+  // C2 兜底：部分模型/网关不支持 response_format，被拒时去掉它重试一次
+  if(!r.ok && (r.status===400||r.status===422)){
+    delete body.response_format;
+    r=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify(body)
+    });
+  }
   if(!r.ok) throw new Error('AI 接口 HTTP '+r.status);
   const j=await r.json();
   const txt=(j.choices&&j.choices[0]&&(j.choices[0].message.content||j.choices[0].message.reasoning_content))||'';
-  const m=String(txt).match(/\{[\s\S]*\}/);
-  if(m){
-    try{
-      const o=JSON.parse(m[0]);
-      return {
-        skip:!!o.skip,
-        reason:String(o.reason||'').slice(0,20),
-        comment:o.skip?'':vidCleanComment(o.comment)
-      };
-    }catch(e){}
+  const judge=vidParseJudge(txt);
+  if(!judge.parsed){
+    // C1：模型没按 JSON 输出就不发布，绝不把原始输出当评论贴出去
+    vidLog('AI 没按 JSON 格式回答，本条不发布',true);
+    return {skip:false, reason:'', comment:'', parseFail:true};
   }
-  // 模型没按 JSON 输出：当成「值得看完」，把它当一个评论用
-  return {skip:false, reason:'', comment:vidCleanComment(txt)};
+  return judge;
 }
-async function vidStep(){
+async function vidStep(mode){
   if(vidBusy){ vidLog('上一条还没处理完，稍等一下～'); return; }
   vidBusy=true; vid.next.disabled=true;
   try{
     // 连续跳过的上限：跳太多次就停下来，避免一直空转
     for(let tries=0; tries<=6; tries++){
       vidLog('正在刷下一条…');
-      const j=await vidApi('/api/next',{});
+      const j=await vidApi('/api/next',{from:vidLastKey,mode:mode||'force'});
       if(!j.ok){
         if(j.needLogin){ vidLog('需要登录抖音：点「登录抖音」完成扫码',true); vidStopAuto(); }
         else vidLog('刷视频失败：'+(j.reason||'未知原因'),true);
         return;
       }
       const v=j.video||{};
+      vidLastKey=v.key||'';
       vidShowVideo(v);
       rememberVideo(v,'');   // 先记下视频内容，评论生成后再补全
 
@@ -3774,6 +3815,8 @@ async function vidStep(){
 
       const text=(judge&&judge.comment)||'';
       if(!text){
+        // C1 已在生成那步打了日志，这里不再重复、也不发布
+        if(judge&&judge.parseFail) return;
         vidLog('这条值得看，但 AI 没想出评论（内容已记入记忆）',true);
         return;
       }
@@ -3781,11 +3824,15 @@ async function vidStep(){
       const item=vidAddItem(v,text,'生成中…','');
       if(vid.pub.checked){
         vidLog('正在发布评论…');
-        const p=await vidApi('/api/comment',{text:text});
+        const p=await vidApi('/api/comment',{text:text,expectKey:v.key||''});
         if(p.ok){
           vidItemStatus(item,'已发布','ok');
           vidLog('已发布：'+text);
           vid.daily.textContent=`今日 ${p.count||0}/${p.limit||20}`;
+        }else if(p.stale){
+          vidItemStatus(item,'视频已切换 · 本条作废','err');
+          vidLog('视频已经切换，这条评论作废，按新视频重来');
+          continue;
         }else{
           const why=p.reason||'未知原因';
           vidItemStatus(item,(p.needLogin?'未登录 · 仅生成':'发布失败：'+why).slice(0,40),'err');
@@ -3813,7 +3860,7 @@ function vidScheduleNext(){
   vidNextDelay=0;
   vidTimer=setTimeout(async()=>{
     if(!vidRunning) return;
-    await vidStep();
+    await vidStep('auto');
     vidScheduleNext();
   },gap);
 }
@@ -3824,7 +3871,7 @@ function vidStartAuto(){
   vidLog('正在启动…（第一次会拉起后台浏览器）');
   vidLiveStart();
   vidApi('/api/window',{show:false}).catch(()=>{});   // 后台运行，不挡大屏
-  vidStep().finally(()=>vidScheduleNext());
+  vidStep('force').finally(()=>vidScheduleNext());
 }
 function vidStopAuto(){
   vidRunning=false;
@@ -3834,7 +3881,7 @@ function vidStopAuto(){
 }
 vid.start.onclick=vidStartAuto;
 vid.stop.onclick=vidStopAuto;
-vid.next.onclick=()=>vidStep();
+vid.next.onclick=()=>{ if(!vidRunning) vidStartAuto(); else vidStep('force'); };
 vid.login.onclick=async()=>{
   vidLog('正在打开抖音登录窗口…');
   try{
