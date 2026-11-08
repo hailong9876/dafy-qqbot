@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PORT = parseInt(process.env.DAFY_VIDEO_PORT || '18903', 10);
+const PORT = parseInt(process.env.DAFY_VIDEO_PORT || '18905', 10);
 const PROFILE = join(HERE, '.douyin-profile');
 const STATE_FILE = join(HERE, 'state.json');
 const HOME = 'https://www.douyin.com/';
