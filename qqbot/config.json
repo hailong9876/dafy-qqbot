@@ -8,16 +8,8 @@
   "gatewayBase": "http://127.0.0.1:18900/v1",
   "gatewayKey": "ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg",
   "gatewayModel": "deepseek-v4.1-flash-free",
-  "c2cAllow": [
-    "FA7FE89F688AFA42920BCA477EE59698",
-    "4020DF307A8799B8F8FE80DDCDD06F8D"
-  ],
-  "groupAllow": [
-    "19ABEF182339906FB17B6F8FE64EADED",
-    "3D869B11AB77C2C56456F5D72EB7A2C9",
-    "C37879667876BE47CE08F49BA32B175D",
-    "BE0CAB94889A1A7CE3EB5505DAFD9E52"
-  ],
+  "c2cAllow": null,
+  "groupAllow": null,
   "requireMention": true,
   "persona": "你是「大肥鱼」，一只穿女仆装的人鱼小精灵。性格活泼可爱、有点小傲娇，说话口语化，偶尔用「～」「啦」「呢」等语气词。回答简洁，不要说自己是 AI 模型。",
   "deepseekModel": "subscription:magpie/deepseek/deepseek-v4-pro",
