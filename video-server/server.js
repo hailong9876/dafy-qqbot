@@ -33,7 +33,7 @@ const PROFILE = join(HERE, '.douyin-profile');
 const STATE_FILE = join(HERE, 'state.json');
 const HOME = 'https://www.douyin.com/';
 const MIN_COMMENT_GAP_MS = 30 * 1000;   // 两次评论至少间隔 30 秒
-const MAX_DAILY_COMMENTS = 20;          // 每天最多发布 20 条
+const MAX_DAILY_COMMENTS = 0;           // 每日评论上限，0 = 不限量（仍保留 30 秒间隔）
 
 let ctx = null;          // 持久化浏览器上下文
 let page = null;         // 当前页面
@@ -409,10 +409,10 @@ async function startScreencast(p) {
   try {
     await s.send('Page.startScreencast', {
       format: 'jpeg',
-      quality: 58,
-      maxWidth: 1280,
-      maxHeight: 720,
-      everyNthFrame: 1,
+      quality: 48,
+      maxWidth: 960,
+      maxHeight: 540,
+      everyNthFrame: 2,   // 隔帧推，减半编码与解码压力（大屏观感几乎无差别）
     });
     log('实时画面推流已开启');
     return true;
@@ -459,7 +459,7 @@ let liveBusy = false;
 let lastEnsureAt = 0;
 async function liveShot(p) {
   if (liveBusy) return liveBuf;
-  if (liveBuf && Date.now() - liveAt < 220) return liveBuf;
+  if (liveBuf && Date.now() - liveAt < 500) return liveBuf;
   liveBusy = true;
   try {
     const buf = await captureJpeg(p, 42, 0.5);   // 半分辨率 + 低质量，画面够看又不卡
@@ -869,7 +869,7 @@ function today() {
 async function checkCommentLimit() {
   const s = await loadState();
   if (s.date !== today()) return { ok: true, state: { date: today(), count: 0, lastPostAt: s.lastPostAt || 0 } };
-  if (s.count >= MAX_DAILY_COMMENTS) {
+  if (MAX_DAILY_COMMENTS > 0 && s.count >= MAX_DAILY_COMMENTS) {
     return { ok: false, reason: `今天已经发了 ${s.count} 条，达到每日上限 ${MAX_DAILY_COMMENTS} 条` };
   }
   if (Date.now() - (s.lastPostAt || 0) < MIN_COMMENT_GAP_MS) {
@@ -1061,7 +1061,7 @@ async function handle(req, res) {
       }
       await startScreencast(page);
       let buf = null;
-      if (liveBuf && Date.now() - liveAt < 1200) buf = liveBuf;  // 推流帧，直接返回
+      if (liveBuf && Date.now() - liveAt < 2000) buf = liveBuf;  // 推流帧，直接返回（静止画面也别急着截图）
       if (!buf) buf = await liveShot(page);                        // 推流刚启动还没出帧，退回截图
       if (!buf) {
         res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });

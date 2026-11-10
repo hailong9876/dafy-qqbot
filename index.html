@@ -363,6 +363,9 @@
   body.pet-text-off .pet-bubble{display:none}
   body.fx-off .light-rays,body.fx-off .plankton,body.fx-off .bubbles,
   body.fx-off .wave,body.fx-off .bg-pet,body.fx-off .scene-layer{display:none}
+  /* 视频面板打开时关掉装饰层：面板已经盖住，留着纯烧 GPU */
+  body.vid-open .light-rays,body.vid-open .plankton,body.vid-open .bubbles,
+  body.vid-open .wave,body.vid-open .bg-pet{display:none}
   /* ===== 历史消耗记录弹窗 ===== */
   .histmask{position:fixed;inset:0;background:rgba(2,10,24,.72);backdrop-filter:blur(6px);z-index:2000;display:none;align-items:center;justify-content:center}
   .histmask.show{display:flex}
@@ -744,6 +747,7 @@
       <div style="display:flex;gap:8px">
         <button class="pickbtn" id="ttsStartBtn">▶ 启动服务</button>
         <button class="pickbtn" id="ttsStopBtn">■ 停止</button>
+        <button class="pickbtn" id="dafyLaunchAllBtn" title="bridge 挂了也能用它拉起来">🚀 一键启动全部</button>
       </div>
     </div>
     <div class="uirow">
@@ -1018,7 +1022,7 @@
         </div>
       </div>
       <div class="vidside">
-        <h3>💬 大肥鱼的评论 <span id="vidDaily">今日 0/20</span></h3>
+        <h3>💬 大肥鱼的评论 <span id="vidDaily">今日 0 条</span></h3>
         <div class="vidfeed" id="vidFeed">
           <div class="fs-empty">还没有评论<br>开始刷视频后这里会出现大肥鱼的吐槽</div>
         </div>
@@ -1026,7 +1030,7 @@
       </div>
     </div>
     <div class="vidfoot">
-      <span>AI 判断不好看会自动划走 · 评论间隔 ≥ 30 秒 · 每天最多 20 条</span>
+      <span>AI 判断不好看会自动划走 · 评论间隔 ≥ 30 秒 · 每日不限条数</span>
       <span class="add">登录态保存在本机 .douyin-profile，不会上传</span>
       <span class="add">视频服务：127.0.0.1:18905</span>
     </div>
@@ -2002,6 +2006,42 @@ ttsEl.stopBtn.onclick=async ()=>{
   setTimeout(()=>{ btn.textContent=old; btn.disabled=false; },2500);
   loadTTS();
 };
+/* ---- 一键启动全部服务：走 dafyall:// 协议拉起 bridge / TTS / 网关 / 视频 ---- */
+async function dafyWaitBridge(timeoutMs){
+  const t0=Date.now();
+  while(Date.now()-t0<(timeoutMs||45000)){
+    try{
+      const r=await fetch(QQBOT_API+'/api/health',{cache:'no-store'});
+      if(r.ok) return true;
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  return false;
+}
+/* 确保 bridge 在线：不在就弹 dafyall:// 拉起全部服务并等它起来 */
+async function ensureBridge(){
+  try{
+    const r=await fetch(QQBOT_API+'/api/health',{cache:'no-store'});
+    if(r.ok) return true;
+  }catch(e){}
+  try{ window.open('dafyall://start','_blank'); }catch(e){}
+  return await dafyWaitBridge(45000);
+}
+document.getElementById('dafyLaunchAllBtn').onclick=async ()=>{
+  const btn=document.getElementById('dafyLaunchAllBtn');
+  const old=btn.textContent;
+  btn.textContent='启动中…'; btn.disabled=true;
+  try{ window.open('dafyall://start','_blank'); }catch(e){}
+  const ok=await dafyWaitBridge(45000);
+  btn.textContent=ok?'✓ 已连上':'✗ 超时'; btn.disabled=false;
+  if(ok){
+    loadTTS();
+    try{ evoPoll(); aglPoll(); vidPoll(); }catch(e){}
+  }else{
+    alert('没连上。请手动双击项目根目录的「启动全部服务.cmd」');
+  }
+  setTimeout(()=>{ btn.textContent=old; },3000);
+};
 function updateVoiceDesc(){
   const v=_ttsVoices.find(x=>x.id===ttsEl.voice.value);
   ttsEl.voiceDesc.textContent=v?v.desc||v.name:'—';
@@ -2860,14 +2900,14 @@ const MCP_TOOLS=[
   },
   {
     name:'douyin_post_comment',
-    desc:'在当前抖音视频下发布一条真实评论（每 30 秒最多 1 条、每天最多 20 条；需要先登录抖音）。',
+    desc:'在当前抖音视频下发布一条真实评论（每 30 秒最多 1 条、每日不限条数；需要先登录抖音）。',
     params:{type:'object',properties:{text:{type:'string',description:'评论内容，20 字左右，最多 60 字'}},required:['text']},
     exec:async(a)=>{
       const text=String(a.text||'').trim();
       if(!text) throw new Error('评论内容不能为空');
       const j=await vidApi('/api/comment',{text:text});
       if(!j.ok) throw new Error(j.reason||'发布失败');
-      return `已发布评论: ${j.text}\n今日进度: ${j.count}/${j.limit}`;
+      return `已发布评论: ${j.text}\n今日已发: ${j.count} 条${j.limit>0?'（上限 '+j.limit+' 条）':'（不限量）'}`;
     }
   }
 ];
@@ -3334,13 +3374,17 @@ async function evoPoll(){
   }catch(e){
     const pill=document.getElementById('evoPill');
     pill.textContent='控制服务未连接'; pill.className='evoPill off';
-    evoRowInfo.textContent='控制服务未启动（双击 qqbot\\bridge.cmd）';
+    evoRowInfo.textContent='控制服务未启动（打开上方的开关会自动拉起）';
     evoSw.checked=false; evoSw2.checked=false;
   }
 }
 async function evoStart(){
   if(evoBusy) return; evoBusy=true;
   try{
+    if(!(await ensureBridge())){
+      alert('bridge 没起来，请手动双击项目根目录「启动全部服务.cmd」');
+      evoSw.checked=false; evoSw2.checked=false; return;
+    }
     const r=await fetch(H2+'/start',{method:'POST'});
     const j=await r.json();
     if(!j.ok){ alert(j.error||'启动失败'); evoSw.checked=false; evoSw2.checked=false; return; }
@@ -3364,7 +3408,8 @@ document.getElementById('evoStopBtn').onclick=evoStop;
 // 点背景只在运行时收起窗口（进程继续跑）；只有「停止并退出」会真正结束
 evoMask.addEventListener('click',e=>{ if(e.target===evoMask && evoSw.checked) evoMask.classList.remove('show'); });
 evoPoll();
-setInterval(evoPoll,3000);
+setInterval(()=>{ if(evoMask.classList.contains('show')) evoPoll(); },3000);
+setInterval(()=>{ if(!evoMask.classList.contains('show')) evoPoll(); },15000);
 
 /* ---- Agent Lightning 训练面板（本地控制服务 127.0.0.1:18902） ---- */
 const AGL=QQBOT_API+'/api/agl';
@@ -3450,7 +3495,20 @@ async function aglCall(path){
     if(!j.ok){ alert(j.error||'操作失败'); return false; }
     setTimeout(aglPoll,800); setTimeout(aglPoll,3000);
     return true;
-  }catch(e){ alert('操作失败：'+e.message); return false; }
+  }catch(e){
+    // bridge 没起：先一键拉起全部服务，再重试一次
+    if(await ensureBridge()){
+      try{
+        const r2=await fetch(AGL+path,{method:'POST'});
+        const j2=await r2.json();
+        if(j2.ok){ setTimeout(aglPoll,800); setTimeout(aglPoll,3000); return true; }
+        alert(j2.error||'操作失败');
+        return false;
+      }catch(e2){ alert('操作失败：'+e2.message); return false; }
+    }
+    alert('bridge 没起来，请手动双击项目根目录「启动全部服务.cmd」');
+    return false;
+  }
 }
 document.getElementById('aglBtn').onclick=()=>{ aglMask.classList.add('show'); aglPoll(); };
 document.getElementById('aglHide').onclick=()=>aglMask.classList.remove('show');
@@ -3537,6 +3595,10 @@ async function vidUpdateBox(){
   }catch(e){}
 }
 window.addEventListener('resize',vidLayoutLive);
+function fmtDaily(count,limit){
+  const c=Number(count)||0;
+  return Number(limit)>0 ? `今日 ${c}/${limit}` : `今日 ${c} 条 · 不限量`;
+}
 function vidLiveStart(){
   if(vidLiveOn || vidLiveBroken) return;
   vidLiveOn=true; vidLiveFail=0;
@@ -3563,12 +3625,12 @@ function vidLiveStart(){
         if(vid.live.src && vid.live.style.display==='block') return;
         vid.ph.style.display='';
         vid.launch.style.display='none';
-        vid.launchTip.textContent='实时画面没拿到：请重启 video-server\\启动视频服务.cmd';
+        vid.launchTip.textContent='实时画面没拿到：点上面的「▶ 启动视频服务」';
       }
     };
     n.src=VID+'/api/live.jpg?t='+Date.now();
     const folded=vid.mask.classList.contains('fold');
-    vidLiveTimer=setTimeout(tick, folded?900:110);
+    vidLiveTimer=setTimeout(tick, folded?900:135);
   };
   tick();
 }
@@ -3585,15 +3647,15 @@ async function vidPoll(){
     else if(j.running) vidPill('浏览器已开 · 未登录','warn');
     else vidPill('服务在线 · 浏览器未打开','');
     vid.login.textContent=j.loggedIn?'✓ 已登录':'登录抖音';
-    vid.daily.textContent=`今日 ${j.dailyCount||0}/${j.dailyLimit||20}`;
+    vid.daily.textContent=fmtDaily(j.dailyCount,j.dailyLimit);
     if(j.running && vid.mask.classList.contains('show')) vidLiveStart();
   }catch(e){
     vidPill('视频服务未启动','err');
     vidLiveStop();
     vid.launch.style.display='inline-block';
-    vid.launchTip.textContent='双击 video-server\\启动视频服务.cmd，或点上面的按钮';
+    vid.launchTip.textContent='点「▶ 启动视频服务」一键拉起（bridge / 语音 / 网关 / 视频都会起来）';
     if(vid.mask.classList.contains('show')){
-      vidLog('视频服务没连上：点「▶ 启动视频服务」或双击 启动视频服务.cmd',true);
+      vidLog('视频服务没连上：点「▶ 启动视频服务」一键拉起',true);
     }
   }
 }
@@ -3828,7 +3890,7 @@ async function vidStep(mode){
         if(p.ok){
           vidItemStatus(item,'已发布','ok');
           vidLog('已发布：'+text);
-          vid.daily.textContent=`今日 ${p.count||0}/${p.limit||20}`;
+          vid.daily.textContent=fmtDaily(p.count,p.limit);
         }else if(p.stale){
           vidItemStatus(item,'视频已切换 · 本条作废','err');
           vidLog('视频已经切换，这条评论作废，按新视频重来');
@@ -3910,10 +3972,12 @@ vid.gap.onchange=vidSavePrefs;
 function vidOpenPanel(){
   vid.mask.classList.remove('fold');
   vid.mask.classList.add('show');
+  document.body.classList.add('vid-open');
   vidPoll();
 }
 function vidClosePanel(){
   vid.mask.classList.remove('show');
+  document.body.classList.remove('vid-open');
   vidLiveStop();
 }
 document.getElementById('videoBtn').onclick=vidOpenPanel;
@@ -3923,13 +3987,17 @@ vid.full.onclick=()=>{
   if(vid.mask.classList.contains('full')) vid.mask.classList.remove('full');
   else { vid.mask.classList.remove('fold'); vid.mask.classList.add('full'); }
 };
-// 收起成右下角小窗：自动刷继续跑，画面继续刷新
-vid.fold.onclick=()=>{ vid.mask.classList.remove('full'); vid.mask.classList.add('fold'); };
-vid.expand.onclick=()=>{ vid.mask.classList.remove('fold'); vidPoll(); };
-// 服务没起时，点这里用 dafyv:// 协议拉起启动脚本
+// 收起成右下角小窗：自动刷继续跑，画面继续刷新（小窗时恢复装饰层）
+vid.fold.onclick=()=>{ vid.mask.classList.remove('full'); vid.mask.classList.add('fold'); document.body.classList.remove('vid-open'); };
+vid.expand.onclick=()=>{
+  vid.mask.classList.remove('fold');
+  document.body.classList.add('vid-open');
+  vidPoll();
+};
+// 服务没起时，点这里用 dafyall:// 协议拉起全部服务（bridge / TTS / 网关 / 视频）
 vid.launch.onclick=()=>{
-  vid.launchTip.textContent='正在启动…浏览器如果弹出提示请点「打开」';
-  try{ window.open('dafyv://start','_blank'); }catch(e){}
+  vid.launchTip.textContent='正在启动全部服务…浏览器如果弹出提示请点「打开」';
+  try{ window.open('dafyall://start','_blank'); }catch(e){}
   let n=0;
   const t=setInterval(async()=>{
     n++;
@@ -3941,7 +4009,7 @@ vid.launch.onclick=()=>{
     }catch(e){
       if(n>=12){
         clearInterval(t);
-        vid.launchTip.textContent='没启动成功：直接双击 video-server\\启动视频服务.cmd';
+        vid.launchTip.textContent='没启动成功：手动双击项目根目录「启动全部服务.cmd」';
       }else{
         vid.launchTip.textContent=`正在启动…（${n}/12）`;
       }
