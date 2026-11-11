@@ -1,28 +1,22 @@
 Set sh = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 
-Function FindNode()
-  Dim paths, i, p
-  paths = Array("C:\Program Files\nodejs\node.exe", _
-                "D:\Program Files\nodejs\node.exe", _
-                "%LOCALAPPDATA%\Programs\nodejs\node.exe")
-  For i = 0 To UBound(paths)
-    p = sh.ExpandEnvironmentStrings(paths(i))
-    If fso.FileExists(p) Then
-      FindNode = p : Exit Function
-    End If
-  Next i
-  On Error Resume Next
-  FindNode = sh.RegRead("HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\node.exe")
-  If Err.Number <> 0 Then Err.Clear : FindNode = "node"
-  On Error GoTo 0
-End Function
+Dim NODE
+If fso.FileExists("C:\Program Files\nodejs\node.exe") Then
+  NODE = "C:\Program Files\nodejs\node.exe"
+ElseIf fso.FileExists("D:\Program Files\nodejs\node.exe") Then
+  NODE = "D:\Program Files\nodejs\node.exe"
+ElseIf fso.FileExists(sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\nodejs\node.exe")) Then
+  NODE = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\nodejs\node.exe")
+Else
+  NODE = "node"
+End If
 
-Dim NODE : NODE = FindNode()
-Dim ROOT : ROOT = fso.GetParentFolderName(WScript.ScriptFullName)
+Dim ROOT
+ROOT = fso.GetParentFolderName(WScript.ScriptFullName)
 
 sh.CurrentDirectory = ROOT
-sh.Run """" & NODE & """ keep_alive.js", 0, False
+sh.Run """" & NODE & """ """ & ROOT & "\keep_alive.js""", 0, False
 
 sh.CurrentDirectory = ROOT & "\video-server"
-sh.Run """" & NODE & """ server.js", 0, False
+sh.Run """" & NODE & """ """ & ROOT & "\video-server\server.js""", 0, False

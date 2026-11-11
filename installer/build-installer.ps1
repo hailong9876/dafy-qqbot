@@ -64,7 +64,7 @@ if (-not ($KeepStage -and (Test-Path $payload))) {
     if (-not (Test-Path $src)) { throw "缺少运行文件: $f" }
     Copy-Item $src (Join-Path $payload $f) -Force
   }
-  foreach ($dir in @('assets', 'mcp-server')) {
+  foreach ($dir in @('assets', 'mcp-server', 'pc-server')) {
     $src = Join-Path $proj $dir
     if (-not (Test-Path $src)) { throw "缺少目录: $dir" }
     Copy-Item $src (Join-Path $payload $dir) -Recurse -Force

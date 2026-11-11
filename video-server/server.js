@@ -23,9 +23,9 @@
 import { chromium } from 'playwright-core';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, stat, readdir, rm } from 'node:fs/promises';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.DAFY_VIDEO_PORT || '18905', 10);
@@ -879,6 +879,159 @@ async function checkCommentLimit() {
   return { ok: true, state: s };
 }
 
+/* ---------------- 联网浏览（独立无头浏览器，不影响抖音播放） ---------------- */
+let webBrowser = null;
+let webLaunching = null;
+let webIdleTimer = null;
+const WEB_IDLE_MS = 3 * 60 * 1000; // 空闲 3 分钟自动关掉，省内存
+const WEB_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0';
+
+async function getWebBrowser() {
+  if (webIdleTimer) { clearTimeout(webIdleTimer); webIdleTimer = null; }
+  if (webBrowser && webBrowser.isConnected()) return webBrowser;
+  if (webLaunching) return webLaunching;
+  const p = (async () => {
+    const opts = {
+      headless: true,
+      viewport: { width: 1440, height: 900 },
+      locale: 'zh-CN',
+      userAgent: WEB_UA,
+      args: ['--disable-blink-features=AutomationControlled', '--no-first-run', '--disable-notifications'],
+    };
+    let b;
+    try {
+      b = await chromium.launch({ ...opts, channel: 'msedge' });
+    } catch (e) {
+      log('Edge 启动失败，改用内置 Chromium:', e.message);
+      b = await chromium.launch(opts);
+    }
+    webBrowser = b;
+    log('联网浏览器已启动');
+    return b;
+  })().finally(() => { webLaunching = null; });
+  webLaunching = p;
+  return p;
+}
+
+function scheduleWebIdleClose() {
+  if (webIdleTimer) clearTimeout(webIdleTimer);
+  webIdleTimer = setTimeout(async () => {
+    webIdleTimer = null;
+    const b = webBrowser;
+    webBrowser = null;
+    if (b) {
+      try { await b.close(); } catch {}
+      log('联网浏览器空闲关闭');
+    }
+  }, WEB_IDLE_MS);
+}
+
+function normalizeWebUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) throw new Error('url 不能为空');
+  if (/^https?:\/\//i.test(s)) return s;
+  return 'https://' + s;
+}
+
+async function webOpenPage(target, maxChars) {
+  const b = await getWebBrowser();
+  const p = await b.newPage();
+  try {
+    await p.goto(normalizeWebUrl(target), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await sleep(800);
+    const title = await p.title().catch(() => '');
+    const finalUrl = p.url();
+    const text = await p
+      .evaluate(() => (document.body ? document.body.innerText.replace(/\n{3,}/g, '\n\n').trim() : ''))
+      .catch(() => '');
+    const cap = Math.max(500, Math.min(Number(maxChars) || 4000, 12000));
+    return { title, finalUrl, text: text.slice(0, cap), more: text.length > cap };
+  } finally {
+    await p.close().catch(() => {});
+    scheduleWebIdleClose();
+  }
+}
+
+async function webSearch(query, engine, limit) {
+  const eng = /baidu/i.test(String(engine || '')) ? 'baidu' : 'bing';
+  const n = Math.max(1, Math.min(Number(limit) || 8, 12));
+  const target =
+    eng === 'baidu'
+      ? 'https://www.baidu.com/s?wd=' + encodeURIComponent(query)
+      : 'https://cn.bing.com/search?q=' + encodeURIComponent(query);
+  const sel = eng === 'baidu' ? '#content_left .result, #content_left .result-op' : '#b_results > li.b_algo';
+  const b = await getWebBrowser();
+  const p = await b.newPage();
+  try {
+    await p.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const extract = () =>
+      p.evaluate(
+        ({ sel, n }) => {
+          const out = [];
+          document.querySelectorAll(sel).forEach((el) => {
+            if (out.length >= n) return;
+            const a = el.querySelector('h3 a, h2 a') || el.querySelector('a');
+            if (!a) return;
+            const title = (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim();
+            const href = a.href || '';
+            const sn = el.querySelector('.b_caption p, .c-abstract, [class*="content-right"], .b_lineclamp2');
+            const snippet = ((sn && sn.innerText) || el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+            if (title && href) out.push({ title, url: href, snippet });
+          });
+          return out;
+        },
+        { sel, n }
+      );
+    try { await p.waitForSelector(sel, { timeout: 8000 }); } catch {}
+    let list = await extract().catch(() => []);
+    if (!list.length) {
+      await sleep(1500);
+      list = await extract().catch(() => []);
+    }
+    return { eng, list };
+  } finally {
+    await p.close().catch(() => {});
+    scheduleWebIdleClose();
+  }
+}
+
+/* ---------------- 资源库文件管理（根目录取自大屏文件服务 18901） ---------------- */
+const FS_BASE = 'http://127.0.0.1:18901';
+
+function fsApiGet(p) {
+  return new Promise((ok, fail) => {
+    const req = http.get(FS_BASE + p, (res) => {
+      let d = '';
+      res.on('data', (c) => (d += c));
+      res.on('end', () => {
+        try {
+          ok(JSON.parse(d));
+        } catch {
+          fail(new Error('文件服务返回异常'));
+        }
+      });
+    });
+    req.on('error', () => fail(new Error('大屏文件服务未启动')));
+    req.setTimeout(5000, () => req.destroy(new Error('文件服务响应超时')));
+  });
+}
+
+async function libraryRoot() {
+  const j = await fsApiGet('/api/root');
+  if (!j.root) throw new Error('资源库未设置，请先在大屏中点击「📂 选择文件夹」');
+  return j.root;
+}
+
+function resolveInside(root, rel) {
+  const base = resolve(root);
+  const target = resolve(base, String(rel || ''));
+  if (target !== base && !target.startsWith(base + sep)) {
+    throw new Error('路径越界：只能操作资源库内的文件');
+  }
+  return target;
+}
+
 /* ---------------- HTTP ---------------- */
 
 function json(res, code, obj) {
@@ -1467,6 +1620,57 @@ async function handle(req, res) {
     if (path === '/api/close') {
       await closeBrowser();
       return json(res, 200, { ok: true });
+    }
+
+    if (path === '/api/web/search') {
+      const b = req.method === 'POST' ? await readBody(req) : {};
+      const q = String(b.query || url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
+      if (!q) return json(res, 200, { ok: false, reason: '缺少 query 参数' });
+      const engine = b.engine || url.searchParams.get('engine');
+      const limit = b.limit || url.searchParams.get('limit');
+      const r = await webSearch(q, engine, limit);
+      return json(res, 200, { ok: true, engine: r.eng, query: q, count: r.list.length, results: r.list });
+    }
+
+    if (path === '/api/web/open') {
+      const b = req.method === 'POST' ? await readBody(req) : {};
+      const target = String(b.url || url.searchParams.get('url') || '').trim();
+      if (!target) return json(res, 200, { ok: false, reason: '缺少 url 参数' });
+      const r = await webOpenPage(target, b.maxChars || url.searchParams.get('maxChars'));
+      return json(res, 200, { ok: true, ...r });
+    }
+
+    if (path === '/api/fs/mkdir') {
+      const b = req.method === 'POST' ? await readBody(req) : {};
+      const rel = String(b.path || url.searchParams.get('path') || '').trim();
+      if (!rel) return json(res, 200, { ok: false, reason: '缺少 path 参数' });
+      const root = await libraryRoot();
+      const target = resolveInside(root, rel);
+      await mkdir(target, { recursive: true });
+      return json(res, 200, { ok: true, path: target });
+    }
+
+    if (path === '/api/fs/delete') {
+      const b = req.method === 'POST' ? await readBody(req) : {};
+      const rel = String(b.path || url.searchParams.get('path') || '').trim();
+      if (!rel) return json(res, 200, { ok: false, reason: '缺少 path 参数' });
+      const root = await libraryRoot();
+      const target = resolveInside(root, rel);
+      if (target === resolve(root)) return json(res, 200, { ok: false, reason: '不能删除资源库根目录' });
+      const st = await stat(target).catch(() => null);
+      if (!st) return json(res, 200, { ok: false, reason: '目标不存在: ' + rel });
+      const recursive = b.recursive === true || b.recursive === 'true';
+      if (st.isDirectory() && !recursive) {
+        const kids = await readdir(target).catch(() => []);
+        if (kids.length) {
+          return json(res, 200, {
+            ok: false,
+            reason: `文件夹非空（${kids.length} 项），如需整体删除请传 recursive=true`,
+          });
+        }
+      }
+      await rm(target, { recursive: true, force: false });
+      return json(res, 200, { ok: true, path: target });
     }
 
     return json(res, 404, { ok: false, reason: '未知接口' });

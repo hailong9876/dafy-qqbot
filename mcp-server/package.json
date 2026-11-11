@@ -12,6 +12,7 @@
     "test": "node test-client.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.32.2"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "playwright-core": "^1.64.1"
   }
 }

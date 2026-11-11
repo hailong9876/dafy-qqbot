@@ -1365,7 +1365,7 @@ applyUI();
 /* ============ 网关 / 对话 ============ */
 const GATEWAY='http://127.0.0.1:18900';
 const GW_KEY='ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg';
-const APP_VERSION='1.2.5';   // 版本号：升级时同步修改这里与 installer/VERSION
+const APP_VERSION='1.2.9';   // 版本号：升级时同步修改这里与 installer/VERSION
 const EL={
   gwPill:document.getElementById('gwPill'),
   mdlPill:document.getElementById('mdlPill'),
@@ -2738,8 +2738,9 @@ function searchPlugins(keyword,limit){
 
 /* ============ MCP 工具系统 ============ */
 // 工具定义：核心文件工具与 mcp-server/server.js 对应，
-// 另含前端增强工具（时间 / 系统信息 / 资源库搜索 / Obsidian 插件搜索）。
+// 另含前端增强工具（时间 / 系统信息 / 资源库搜索 / Obsidian 插件搜索 / 联网搜索与网页读取）。
 // 前端直接通过文件服务 HTTP API 执行（等价于 MCP 工具调用），
+// 联网能力经由视频服务(18905)的独立无头浏览器执行，不影响抖音播放；
 // 同时也可被外部 MCP 客户端通过 dafy-mcp server 调用。
 const MCP_TOOLS=[
   {
@@ -2770,7 +2771,7 @@ const MCP_TOOLS=[
   },
   {
     name:'write_file',
-    desc:'在资源库中新建文件（仅新建，不支持覆盖；父目录需已存在）',
+    desc:'在资源库中新建文件（仅新建，不支持覆盖；父目录需已存在，可先用 create_directory 建目录）',
     params:{type:'object',properties:{path:{type:'string',description:'目标相对路径'},content:{type:'string',description:'文本内容'}},required:['path','content']},
     exec:async(a)=>{
       if(!a.path) throw new Error('path 参数不能为空');
@@ -2784,6 +2785,30 @@ const MCP_TOOLS=[
       if(!chk.err) throw new Error(`文件已存在，为保护数据请换一个文件名: ${a.path}`);
       const j=await fsWrite(a.path,a.content||'');
       return `已写入: ${a.path}${j.size?' ('+fmtSize(j.size)+')':''}`;
+    }
+  },
+  {
+    name:'create_directory',
+    desc:'在资源库中新建文件夹（自动创建多层父目录，已存在则直接成功）。要往新文件夹写文件前，先调用这个。',
+    params:{type:'object',properties:{path:{type:'string',description:'相对于资源库根目录的文件夹路径，如 大肥鱼测试/说明'}},required:['path']},
+    exec:async(a)=>{
+      const p=String(a.path||'').trim();
+      if(!p) throw new Error('path 参数不能为空');
+      const j=await vidApi('/api/fs/mkdir',{path:p});
+      if(!j.ok) throw new Error(j.reason||'创建文件夹失败');
+      return `文件夹已创建: ${p}`;
+    }
+  },
+  {
+    name:'delete_path',
+    desc:'删除资源库中的文件或文件夹（删除非空文件夹需传 recursive=true）。不可恢复，删除前先确认。',
+    params:{type:'object',properties:{path:{type:'string',description:'相对于资源库根目录的路径'},recursive:{type:'boolean',description:'删除非空文件夹时设为 true',default:false}},required:['path']},
+    exec:async(a)=>{
+      const p=String(a.path||'').trim();
+      if(!p) throw new Error('path 参数不能为空');
+      const j=await vidApi('/api/fs/delete',{path:p,recursive:a.recursive===true});
+      if(!j.ok) throw new Error(j.reason||'删除失败');
+      return `已删除: ${p}`;
     }
   },
   {
@@ -2874,6 +2899,44 @@ const MCP_TOOLS=[
     }
   },
   {
+    name:'web_search',
+    desc:'联网搜索（必应/百度），返回结果的标题、链接和摘要。查资料、查新闻、查实时信息时使用（需要视频服务在线）。',
+    params:{type:'object',properties:{
+      query:{type:'string',description:'搜索关键词'},
+      engine:{type:'string',description:'搜索引擎：bing（默认）或 baidu'},
+      limit:{type:'number',description:'返回条数，默认 6，最大 12'}
+    },required:['query']},
+    exec:async(a)=>{
+      const q=String(a.query||'').trim();
+      if(!q) throw new Error('query 参数不能为空');
+      const j=await vidApi('/api/web/search',{
+        query:q,
+        engine:/baidu/i.test(String(a.engine||''))?'baidu':'bing',
+        limit:Math.max(1,Math.min(Number(a.limit)||6,12))
+      });
+      if(!j.ok) throw new Error(j.reason||'搜索失败');
+      const list=j.results||[];
+      if(!list.length) return `没搜到「${q}」的结果（可能被搜索引擎拦截，换个关键词或稍后再试）`;
+      return `搜索「${q}」（${j.engine}）共 ${list.length} 条:\n`+
+        list.map((r,i)=>`${i+1}. ${r.title}\n   ${r.snippet}\n   ${r.url}`).join('\n');
+    }
+  },
+  {
+    name:'browser_open',
+    desc:'用内置浏览器打开任意网页并读取正文内容（需要视频服务在线）。查网页、看文档、读新闻时使用。',
+    params:{type:'object',properties:{
+      url:{type:'string',description:'网址，可省略 https://，如 www.baidu.com'},
+      maxChars:{type:'number',description:'返回正文最大字符数，默认 4000'}
+    },required:['url']},
+    exec:async(a)=>{
+      const u=String(a.url||'').trim();
+      if(!u) throw new Error('url 参数不能为空');
+      const j=await vidApi('/api/web/open',{url:u,maxChars:Math.max(500,Math.min(Number(a.maxChars)||4000,12000))});
+      if(!j.ok) throw new Error(j.reason||'打开网页失败');
+      return `标题: ${j.title||'（无标题）'}\n网址: ${j.finalUrl}\n\n${j.text||'（没有读取到正文）'}${j.more?'\n\n…（正文过长已截断）':''}`;
+    }
+  },
+  {
     name:'get_root',
     desc:'获取当前资源库的根目录绝对路径',
     params:{type:'object',properties:{},required:[]},
@@ -2908,6 +2971,127 @@ const MCP_TOOLS=[
       const j=await vidApi('/api/comment',{text:text});
       if(!j.ok) throw new Error(j.reason||'发布失败');
       return `已发布评论: ${j.text}\n今日已发: ${j.count} 条${j.limit>0?'（上限 '+j.limit+' 条）':'（不限量）'}`;
+    }
+  },
+  {
+    name:'screen_look',
+    desc:'看屏幕：截取当前桌面，识别屏幕上的文字（带点击坐标）并列出打开的窗口。需要先知道屏幕内容、找按钮位置时使用；识别后可配合 mouse_click 点击对应坐标。',
+    params:{type:'object',properties:{
+      maxWords:{type:'number',description:'最多识别多少个词，默认 80，最大 300'}
+    },required:[]},
+    exec:async(a)=>{
+      const j=await pcApi('/api/screen/look',{maxWords:Number(a.maxWords)||80});
+      if(!j.ok) throw new Error(j.reason||'看屏幕失败');
+      const out=[];
+      out.push(`屏幕尺寸: ${j.screen.width}x${j.screen.height}（坐标为物理像素，左上角为原点）`);
+      const fg=(j.windows||[]).find(w=>w.hwnd===j.foreground);
+      if(fg) out.push(`当前前台窗口: ${fg.title}（${fg.proc}）`);
+      if(j.windows&&j.windows.length){
+        out.push('打开的窗口:\n'+j.windows.map(w=>`  [${w.hwnd}] ${w.title}（${w.proc}）位置 ${w.x},${w.y} 尺寸 ${w.w}x${w.h}`).join('\n'));
+      }
+      if(j.ocrOk){
+        const lines=(j.lines||[]).filter(l=>l.t&&l.t.trim());
+        if(lines.length){
+          out.push('屏幕上的文字（→ 后是该文字的点击坐标）:\n'+
+            lines.map(l=>`  「${l.t}」→ (${Math.round(l.x+l.w/2)},${Math.round(l.y+l.h/2)})`).join('\n'));
+        }else{
+          out.push('屏幕文字: 没有识别到文字（可能是纯图片或画面太暗）');
+        }
+      }else{
+        out.push('屏幕文字: 未能识别（'+j.ocrReason+'）');
+      }
+      return out.join('\n');
+    }
+  },
+  {
+    name:'mouse_click',
+    desc:'移动鼠标并点击屏幕上的指定坐标。坐标取自 screen_look 识别结果（物理像素）。会真实操作用户电脑，执行前先确认目标位置。',
+    params:{type:'object',properties:{
+      x:{type:'number',description:'横坐标（物理像素）'},
+      y:{type:'number',description:'纵坐标（物理像素）'},
+      button:{type:'string',description:'left（默认）/ right / double / move / wheel'},
+      delta:{type:'number',description:'滚轮滚动量，仅 button=wheel 时有效，负数向下，默认 -120'}
+    },required:['x','y']},
+    exec:async(a)=>{
+      const act=/right|double|move|wheel/i.test(String(a.button||''))?String(a.button).toLowerCase():'click';
+      const j=await pcApi('/api/mouse',{action:act,x:Number(a.x),y:Number(a.y),delta:Number(a.delta)||-120});
+      if(!j.ok) throw new Error(j.reason||'鼠标操作失败');
+      return `鼠标已执行 ${act} @ (${j.x},${j.y})`;
+    }
+  },
+  {
+    name:'type_text',
+    desc:'在当前光标/焦点位置输入文字（支持中文）。可用于在搜索框、输入框里打字。',
+    params:{type:'object',properties:{text:{type:'string',description:'要输入的文字（可用 \\n 换行）'}},required:['text']},
+    exec:async(a)=>{
+      const text=String(a.text==null?'':a.text);
+      if(!text.trim()) throw new Error('text 参数不能为空');
+      const j=await pcApi('/api/type',{text:text});
+      if(!j.ok) throw new Error(j.reason||'输入失败');
+      return `已输入 ${j.length} 个字符`;
+    }
+  },
+  {
+    name:'press_keys',
+    desc:'按下按键或快捷键，如 enter、esc、tab、ctrl+c、ctrl+shift+s、win+d、alt+tab。',
+    params:{type:'object',properties:{keys:{type:'string',description:'按键组合，用 + 连接，例如 ctrl+c'}},required:['keys']},
+    exec:async(a)=>{
+      const keys=String(a.keys||'').trim();
+      if(!keys) throw new Error('keys 参数不能为空');
+      const j=await pcApi('/api/key',{keys:keys});
+      if(!j.ok) throw new Error(j.reason||'按键失败');
+      return `已按下 ${(j.keys||[]).join(' + ')}`;
+    }
+  },
+  {
+    name:'list_windows',
+    desc:'列出当前所有打开的窗口（标题、进程、位置、尺寸），用于判断某个程序是否已打开。',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      const j=await pcApi('/api/windows',{});
+      if(!j.ok) throw new Error(j.reason||'获取窗口列表失败');
+      const list=j.windows||[];
+      if(!list.length) return '当前没有可见窗口';
+      return `共 ${list.length} 个窗口:\n`+list.map(w=>`  [${w.hwnd}] ${String(w.title).slice(0,60)}（${w.proc}）${w.x},${w.y} ${w.w}x${w.h}`).join('\n');
+    }
+  },
+  {
+    name:'focus_window',
+    desc:'把指定窗口切到前台（hwnd 来自 list_windows 或 screen_look），之后才能对它操作。',
+    params:{type:'object',properties:{hwnd:{type:'number',description:'窗口句柄，如 35589430'}},required:['hwnd']},
+    exec:async(a)=>{
+      const hwnd=Number(a.hwnd);
+      if(!Number.isFinite(hwnd)||hwnd<=0) throw new Error('hwnd 参数无效');
+      const j=await pcApi('/api/window/focus',{hwnd:hwnd});
+      if(!j.ok) throw new Error(j.reason||'切换到该窗口失败（可能被系统限制）');
+      return `已切换到窗口 ${hwnd}`;
+    }
+  },
+  {
+    name:'list_desktop_apps',
+    desc:'列出桌面上所有软件快捷方式的名称（含公共桌面）。想知道用户电脑装了哪些软件、桌面上有什么时使用。',
+    params:{type:'object',properties:{},required:[]},
+    exec:async()=>{
+      const j=await pcApi('/api/apps/list',{});
+      if(!j.ok) throw new Error(j.reason||'读取桌面快捷方式失败');
+      const list=j.apps||[];
+      if(!list.length) return '桌面上没有找到快捷方式';
+      return `桌面共 ${list.length} 个软件:\n`+list.map(a=>`  ${a.name}${a.target?'（'+a.target+'）':''}`).join('\n');
+    }
+  },
+  {
+    name:'open_app',
+    desc:'按名称打开桌面上的软件快捷方式，名称可以只写一部分（如「微信」「Edge」）。先不确定叫什么时可以先用 list_desktop_apps 看列表。',
+    params:{type:'object',properties:{name:{type:'string',description:'软件名，例如 微信 / Microsoft Edge / PyCharm'}},required:['name']},
+    exec:async(a)=>{
+      const name=String(a.name||'').trim();
+      if(!name) throw new Error('软件名不能为空');
+      const j=await pcApi('/api/apps/open',{name:name});
+      if(!j.ok){
+        if(Array.isArray(j.candidates)&&j.candidates.length) throw new Error(`${j.reason}: ${j.candidates.join(' / ')}`);
+        throw new Error(j.reason||'打开失败');
+      }
+      return `已打开 ${j.launched}`;
     }
   }
 ];
@@ -3526,6 +3710,15 @@ setInterval(()=>{ if(aglMask.classList.contains('show')) aglPoll(); },3000);
 
 /* ============ 抖音摸鱼视频 ============ */
 const VID='http://127.0.0.1:18905';
+const PC='http://127.0.0.1:18907';   // 电脑控制服务（截屏 / OCR / 键鼠）
+async function pcApi(path,body,method){
+  const opt={method:method||'POST',headers:{'Content-Type':'application/json'}};
+  if(opt.method==='POST' && body!==undefined) opt.body=JSON.stringify(body);
+  const r=await fetch(PC+path,opt);
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!j) throw new Error('电脑控制服务未响应（127.0.0.1:18907 是否已启动？）');
+  return j;
+}
 const vid={
   mask:document.getElementById('videoMask'),
   pill:document.getElementById('vidPill'),

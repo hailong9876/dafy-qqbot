@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 cd /d "%~dp0"
 title Dafy - Startup All Services
 
@@ -13,14 +12,16 @@ for /f "tokens=5" %%A in ('netstat -ano 2^>nul ^| findstr ":18902" ^| findstr LI
   echo [cleanup] bridge 18902 occupied by PID %%A - killing
   taskkill /PID %%A /F >nul 2>nul
 )
-timeout /t 2 >nul
+ping -n 3 127.0.0.1 >nul
 
 REM ---- 2. Launch keep_alive + video via vbs (silent, detached) ----
 echo [start ] wscript autostart.vbs
-wscript autostart.vbs
-if errorlevel 1 (
-  echo [WARN  ] wscript failed - is autostart.vbs still here?
+if not exist "%~dp0autostart.vbs" (
+  echo [ERROR ] autostart.vbs not found next to this cmd
+  pause
+  exit /b 1
 )
+wscript "%~dp0autostart.vbs"
 
 REM ---- 3. Wait for bridge ready via PowerShell ----
 echo [wait  ] bridge 18902 ready
@@ -36,11 +37,11 @@ if %errorlevel%==0 (
   goto :done
 )
 set /a WAITED+=1
-timeout /t 1 >nul
+ping -n 2 127.0.0.1 >nul
 goto :wait_loop
 
 :done
 echo.
 echo === Exit. Services keep running in background. ===
-timeout /t 5 >nul
+ping -n 5 127.0.0.1 >nul
 exit /b 0
