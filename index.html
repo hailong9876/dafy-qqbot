@@ -1365,7 +1365,7 @@ applyUI();
 /* ============ 网关 / 对话 ============ */
 const GATEWAY='http://127.0.0.1:18900';
 const GW_KEY='ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg';
-const APP_VERSION='1.2.9';   // 版本号：升级时同步修改这里与 installer/VERSION
+const APP_VERSION='1.3.0';   // 版本号：升级时同步修改这里与 installer/VERSION
 const EL={
   gwPill:document.getElementById('gwPill'),
   mdlPill:document.getElementById('mdlPill'),
@@ -3081,17 +3081,29 @@ const MCP_TOOLS=[
   },
   {
     name:'open_app',
-    desc:'按名称打开桌面上的软件快捷方式，名称可以只写一部分（如「微信」「Edge」）。先不确定叫什么时可以先用 list_desktop_apps 看列表。',
-    params:{type:'object',properties:{name:{type:'string',description:'软件名，例如 微信 / Microsoft Edge / PyCharm'}},required:['name']},
+    desc:'打开软件或文件。支持桌面快捷方式、开始菜单里的程序、系统自带程序（记事本/计算器/画图/任务管理器/控制面板），也可以直接给一个文件路径。名称可以只写一部分（如「微信」「Edge」「网易」）。打开多个候选项时会返回候选列表。',
+    params:{type:'object',properties:{name:{type:'string',description:'软件名或文件路径，例如 微信 / PyCharm / E:\\ai\\笔记.txt'}},required:['name']},
     exec:async(a)=>{
       const name=String(a.name||'').trim();
       if(!name) throw new Error('软件名不能为空');
-      const j=await pcApi('/api/apps/open',{name:name});
+      const j=await pcApi('/api/open',{target:name});
       if(!j.ok){
         if(Array.isArray(j.candidates)&&j.candidates.length) throw new Error(`${j.reason}: ${j.candidates.join(' / ')}`);
         throw new Error(j.reason||'打开失败');
       }
-      return `已打开 ${j.launched}`;
+      return `已打开 ${j.opened}`;
+    }
+  },
+  {
+    name:'open_folder',
+    desc:'用资源管理器打开一个文件夹（或打开某个文件所在位置）。路径可以是绝对路径如 E:\\ai，也可以直接用别名：桌面 / 下载 / 文档 / 图片 / 音乐 / 视频 / 用户目录。',
+    params:{type:'object',properties:{path:{type:'string',description:'文件夹路径或别名，例如 E:\\ai、下载、桌面'}},required:['path']},
+    exec:async(a)=>{
+      const p=String(a.path||'').trim();
+      if(!p) throw new Error('路径不能为空');
+      const j=await pcApi('/api/open',{target:p});
+      if(!j.ok) throw new Error(j.reason||'打开失败');
+      return `已打开 ${j.opened}`;
     }
   }
 ];

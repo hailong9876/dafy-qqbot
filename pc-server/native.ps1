@@ -304,6 +304,100 @@ try {
       Out-Json @{ ok = $true; launched = [IO.Path]::GetFileNameWithoutExtension($hits[0].Name); path = $hits[0].FullName }
     }
 
+    'open' {
+      # 通用打开：路径 / 常用目录别名 / 系统程序 / 桌面与开始菜单快捷方式
+      $t = (([string]$p.target).Trim()).Trim('"')
+      if (-not $t) { Out-Json @{ ok = $false; reason = '缺少要打开的目标' }; break }
+
+      # 1) 已是存在的路径
+      $expand = [Environment]::ExpandEnvironmentVariables($t)
+      if (Test-Path -LiteralPath $expand) {
+        Start-Process -FilePath $expand
+        $isDir = (Get-Item -LiteralPath $expand).PSIsContainer
+        Out-Json @{ ok = $true; opened = $expand; kind = $(if ($isDir) { 'folder' } else { 'file' }) }
+        break
+      }
+
+      # 2) 常用目录别名
+      $folders = @{
+        '桌面' = 'Desktop'; '文档' = 'MyDocuments'; '我的文档' = 'MyDocuments'
+        '图片' = 'MyPictures'; '音乐' = 'MyMusic'; '视频' = 'MyVideos'
+        '下载' = 'Downloads'; '用户' = 'UserProfile'; '用户目录' = 'UserProfile'
+      }
+      if ($folders.ContainsKey($t)) {
+        $key = $folders[$t]
+        $fp = ''
+        if ($key -eq 'Downloads') {
+          # 下载目录常被重定向，优先读注册表
+          try {
+            $reg = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+            $fp = [Environment]::ExpandEnvironmentVariables([string](Get-ItemProperty -Path $reg -ErrorAction Stop).'{374DE290-123F-4565-9164-39C4925E467B}')
+          } catch {}
+          if (-not $fp -or -not (Test-Path -LiteralPath $fp)) { $fp = Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads' }
+        } else {
+          $fp = [Environment]::GetFolderPath($key)
+        }
+        if ($fp -and (Test-Path -LiteralPath $fp)) {
+          Start-Process -FilePath $fp
+          Out-Json @{ ok = $true; opened = $fp; kind = 'folder' }
+          break
+        }
+      }
+
+      # 3) 系统自带程序别名
+      $sysapps = @{
+        '记事本' = 'notepad'; '计算器' = 'calc'; '画图' = 'mspaint'; '任务管理器' = 'taskmgr'
+        '控制面板' = 'control'; '命令行' = 'cmd'; '资源管理器' = 'explorer'; '设置' = 'ms-settings:'
+      }
+      if ($sysapps.ContainsKey($t)) {
+        Start-Process -FilePath $sysapps[$t]
+        Out-Json @{ ok = $true; opened = $t; kind = 'app' }
+        break
+      }
+
+      # 4) 桌面 + 开始菜单快捷方式（精确优先，其次模糊）
+      $dirs = @(
+        [Environment]::GetFolderPath('Desktop'),
+        [Environment]::GetFolderPath('CommonDesktopDirectory'),
+        [Environment]::GetFolderPath('Programs'),
+        (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs')
+      )
+      $exact = @()
+      $fuzzy = @()
+      foreach ($d in $dirs) {
+        if (-not $d -or -not (Test-Path -LiteralPath $d)) { continue }
+        foreach ($f in (Get-ChildItem -LiteralPath $d -Filter '*.lnk' -File -Recurse -Depth 3 -ErrorAction SilentlyContinue)) {
+          $name = [IO.Path]::GetFileNameWithoutExtension($f.Name)
+          if ($name -eq $t) { $exact += $f }
+          elseif ($name -like "*$t*") { $fuzzy += $f }
+        }
+      }
+      $hits = if ($exact.Count -gt 0) { $exact } else { $fuzzy }
+      if ($hits.Count -eq 1) {
+        Start-Process -FilePath $hits[0].FullName
+        Out-Json @{ ok = $true; opened = [IO.Path]::GetFileNameWithoutExtension($hits[0].Name); kind = 'app' }
+        break
+      }
+      if ($hits.Count -gt 1) {
+        Out-Json @{ ok = $false; reason = '匹配到多个，请说得更准确'; candidates = @($hits | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_.Name) }) }
+        break
+      }
+
+      # 5) 像路径但不存在
+      if ($t -match '^[A-Za-z]:' -or $t -match '[\\/]') {
+        Out-Json @{ ok = $false; reason = "路径不存在: $t" }
+        break
+      }
+
+      # 6) 最后交给系统 PATH 解析
+      try {
+        Start-Process -FilePath $t
+        Out-Json @{ ok = $true; opened = $t; kind = 'app' }
+      } catch {
+        Out-Json @{ ok = $false; reason = "找不到程序或路径: $t" }
+      }
+    }
+
     default { Out-Json @{ ok = $false; reason = "未知动作: $Action" } }
   }
 } catch {

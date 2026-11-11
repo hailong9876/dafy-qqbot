@@ -234,6 +234,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, await runNative('launch', { name }, 30000));
     }
 
+    if (p === '/api/open') {
+      const target = String(body.target == null ? '' : body.target).trim();
+      if (!target) return json(res, 200, { ok: false, reason: '缺少要打开的目标' });
+      return json(res, 200, await runNative('open', { target }, 35000));
+    }
+
     if (p === '/api/key') {
       const keys = String(body.keys || '').trim();
       if (!keys) return json(res, 200, { ok: false, reason: '缺少 keys，例如 ctrl+c' });
