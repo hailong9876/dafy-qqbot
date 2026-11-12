@@ -188,6 +188,8 @@
     padding:12px 22px;border-radius:14px;cursor:pointer;font-size:14px;letter-spacing:2px;transition:.2s;box-shadow:0 6px 20px rgba(45,140,255,.4);flex-shrink:0}
   .composer button:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(45,140,255,.55)}
   .composer button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+  #stopBtn{display:none;background:linear-gradient(135deg,var(--pink),#ff5d7e);color:#2a0310;box-shadow:0 6px 20px rgba(255,93,126,.4)}
+  #stopBtn:hover{box-shadow:0 10px 24px rgba(255,93,126,.55)}
   .upload-btn{width:44px;height:44px;border-radius:12px;border:1px solid rgba(120,200,255,.35);background:rgba(10,35,70,.6);
     display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:18px;transition:.2s;flex-shrink:0}
   .upload-btn:hover{background:rgba(88,208,255,.2);border-color:var(--aqua);transform:translateY(-1px)}
@@ -1128,6 +1130,7 @@
           </label>
           <textarea id="input" placeholder="跟大肥鱼说点什么吧…(Enter 发送 / Shift+Enter 换行)" rows="1"></textarea>
           <button id="sendBtn">发送 ▸</button>
+          <button id="stopBtn" title="取消本次思考（随时可点）">⏹ 停止</button>
         </div>
       </div>
     </div>
@@ -1365,7 +1368,8 @@ applyUI();
 /* ============ 网关 / 对话 ============ */
 const GATEWAY='http://127.0.0.1:18900';
 const GW_KEY='ofm-F7uIJFOQNOCtiuCjoY12CgFwzeV_QQjg';
-const APP_VERSION='1.3.0';   // 版本号：升级时同步修改这里与 installer/VERSION
+const APP_VERSION='1.3.1';   // 版本号：升级时同步修改这里与 installer/VERSION
+let chatAbort=null;          // 当前对话的中断控制器，点「停止」时 abort
 const EL={
   gwPill:document.getElementById('gwPill'),
   mdlPill:document.getElementById('mdlPill'),
@@ -1374,6 +1378,7 @@ const EL={
   chatLog:document.getElementById('chatLog'),
   input:document.getElementById('input'),
   sendBtn:document.getElementById('sendBtn'),
+  stopBtn:document.getElementById('stopBtn'),
   fileInput:document.getElementById('fileInput'),
   filePreview:document.getElementById('filePreview'),
   tlUl:document.getElementById('tlUl'),
@@ -1660,6 +1665,8 @@ async function demoReply(p){
   return '刚刚所有模型都没接上（免费额度可能用完了），等会儿再跟我说一次吧～';
 }
 EL.input.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();EL.sendBtn.click()} });
+// 随时取消：中断正在进行的模型请求 / 工具循环
+EL.stopBtn.onclick=()=>{ if(chatAbort) chatAbort.abort(); };
 EL.sendBtn.onclick=()=>{
   const p=EL.input.value.trim();
   const files=pendingFiles.slice();
@@ -3345,6 +3352,11 @@ async function chat(prompt,files){
   const key = aiChatKey(c);
   const model = aiChatModel(c);
 
+  // 本次对话的中断控制器：点「停止」可随时取消等待模型或工具循环
+  const ac=new AbortController();
+  chatAbort=ac;
+  EL.stopBtn.style.display='inline-block';
+
   // 构建用户消息内容（多模态：文本 + 图片 + 文件内容）
   const content=[];
   if(prompt) content.push({type:'text',text:prompt});
@@ -3374,10 +3386,10 @@ async function chat(prompt,files){
   pushHistory(messages);
   messages.push({role:'user',content});
   let finalWrap=null;
-  const MAX_TOOL_ROUNDS=6;
 
   try{
-    for(let round=0;round<MAX_TOOL_ROUNDS;round++){
+    for(;;){
+      if(ac.signal.aborted) throw new DOMException('用户已取消','AbortError');
       const body={model:model,messages:messages,stream:false};
       // 本机 Ollama 的 R1 模型默认会先"思考"，关掉直接回答，快很多
       if(c.mode==='oll'){ body.think=false; body.max_tokens=400; }
@@ -3387,7 +3399,7 @@ async function chat(prompt,files){
 
       const r=await fetch(url,{
         method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-        body:JSON.stringify(body)
+        body:JSON.stringify(body),signal:ac.signal
       });
       if(!r.ok) throw new Error('HTTP '+r.status);
       const j=await r.json();
@@ -3402,6 +3414,7 @@ async function chat(prompt,files){
         messages.push({role:'assistant',content:msg.content||null,tool_calls:msg.tool_calls});
         // 逐个执行工具
         for(const tc of msg.tool_calls){
+          if(ac.signal.aborted) throw new DOMException('用户已取消','AbortError');
           const fn=tc.function||{};
           let args={};
           try{ args=fn.arguments?JSON.parse(fn.arguments):{}; }catch(e){}
@@ -3440,12 +3453,14 @@ async function chat(prompt,files){
       speakOnBotReply(txt);
       return;
     }
-    // 超过最大轮次
-    ty.remove();
-    if(!finalWrap) finalWrap=appendMsg('bot','（工具调用轮次过多，已停止）');
-    addTL('err','工具调用超过最大轮次');
   }catch(e){
     ty.remove();
+    // 用户点了「停止」：立刻结束，不做回退 / 换模型 / 演示回复
+    if(ac.signal.aborted||(e&&e.name==='AbortError')){
+      if(!finalWrap) finalWrap=appendMsg('bot','（已停止）');
+      addTL('err','⏹ 已停止生成');
+      return;
+    }
     // 若工具调用不被 API 支持，回退到普通对话
     if(!finalWrap && (e.message.includes('tool')||e.message.includes('400'))){
       try{
@@ -3462,7 +3477,7 @@ async function chat(prompt,files){
         fbMessages.push({role:'user',content:fbContent.join('\n')});
         const r=await fetch(url,{
           method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-          body:JSON.stringify({model:model,messages:fbMessages,stream:false})
+          body:JSON.stringify({model:model,messages:fbMessages,stream:false}),signal:ac.signal
         });
         if(r.ok){
           const j=await r.json();
@@ -3531,6 +3546,12 @@ async function chat(prompt,files){
     const dt=(performance.now()-t0)/1000; stats.ok++;
     EL.sOk.textContent=Math.round(stats.ok/stats.req*100)+'%';
     addTL('ok',`✓ 演示回复 (${Math.round(dt*10)/10}s)`,'demo'); saveStats(); updateRings(dt);
+  }finally{
+    // 无论正常结束还是被取消，都收掉「停止」按钮
+    if(chatAbort===ac){
+      chatAbort=null;
+      EL.stopBtn.style.display='none';
+    }
   }
 }
 
