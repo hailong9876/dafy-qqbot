@@ -30,6 +30,9 @@ const OFM_CLI = path.join(OFM_DIR, 'packages', 'standalone', 'cli.mjs');
 const PC_PORT = 18907;           // 电脑控制服务（截屏 / OCR / 键鼠）
 const PC_DIR = path.join(__dirname, 'pc-server');
 const PC_SCRIPT = path.join(PC_DIR, 'server.js');
+const VIDEO_PORT = 18905;        // 视频 / 文件服务（大屏的文件夹、删除、抖音工具）
+const VIDEO_DIR = path.join(__dirname, 'video-server');
+const VIDEO_SCRIPT = path.join(VIDEO_DIR, 'server.js');
 const NODE = process.execPath;   // 直接用当前运行的 node，避免硬编码路径
 
 // bridge 的健康接口是 /api/health，TTS 两个服务是 /health
@@ -130,6 +133,12 @@ async function main() {
     spawnDetached(NODE, [PC_SCRIPT], { cwd: PC_DIR, name: 'pc', windowsHide: true });
   }
 
+  // 5.7 启视频/文件服务（18905），大屏的文件管理、删除、抖音工具都靠它
+  if (!(await probePort(VIDEO_PORT, 500))) {
+    console.log('启动 视频/文件服务 18905...');
+    spawnDetached(NODE, [VIDEO_SCRIPT], { cwd: VIDEO_DIR, name: 'video', windowsHide: true });
+  }
+
   // 6. 打印最终状态
   console.log('\n=== 服务状态 ===');
   const f0 = await probePort(OFM_PORT, 1000);
@@ -137,11 +146,13 @@ async function main() {
   const f2 = await probe(TTS_PORT, 1000);
   const f3 = await probe(EDGE_TTS_PORT, 1000);
   const f4 = await probePort(PC_PORT, 1000);
+  const f5 = await probePort(VIDEO_PORT, 1000);
   console.log(`模型网关  ${OFM_PORT}: ${f0 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`Bridge    ${BRIDGE_PORT}: ${f1 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`ChatTTS   ${TTS_PORT}: ${f2 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`Edge-TTS  ${EDGE_TTS_PORT}: ${f3 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log(`电脑控制  ${PC_PORT}: ${f4 ? '✅ 运行中' : '❌ 挂了'}`);
+  console.log(`视频/文件 ${VIDEO_PORT}: ${f5 ? '✅ 运行中' : '❌ 挂了'}`);
   console.log('\n现在可以关掉这个窗口（子进程会继续跑）');
   console.log('或者保持开着，它会自动保活');
 
@@ -152,11 +163,13 @@ async function main() {
     const c = await probe(EDGE_TTS_PORT, 500);
     const d = await probePort(OFM_PORT, 800);
     const e = await probePort(PC_PORT, 500);
+    const v = await probePort(VIDEO_PORT, 500);
     if (!a) { console.log('[watchdog] bridge 挂了，重启'); spawnDetached(NODE, [BRIDGE], { cwd: QB, name: 'bridge' }); }
     if (!b) { console.log('[watchdog] tts 挂了，重启'); spawnDetached(TTS_PY, [TTS_SCRIPT, '--port', String(TTS_PORT), '--preload'], { cwd: TTS_DIR, name: 'tts' }); }
     if (!c) { console.log('[watchdog] edge-tts 挂了，重启'); spawnDetached(TTS_PY, [path.join(TTS_DIR, 'edge_tts_server.py'), '--port', String(EDGE_TTS_PORT)], { cwd: TTS_DIR, name: 'edge-tts' }); }
     if (!d) { console.log('[watchdog] 模型网关挂了，重启'); startOfm(); }
     if (!e) { console.log('[watchdog] 电脑控制服务挂了，重启'); spawnDetached(NODE, [PC_SCRIPT], { cwd: PC_DIR, name: 'pc', windowsHide: true }); }
+    if (!v) { console.log('[watchdog] 视频/文件服务挂了，重启'); spawnDetached(NODE, [VIDEO_SCRIPT], { cwd: VIDEO_DIR, name: 'video', windowsHide: true }); }
   }, 30000);
 }
 

@@ -11,4 +11,4 @@
 - id: agent-default-model
   config:
     provider: deepseek-official
-    model: subscription:magpie/deepseek/deepseek-v4-pro
+    model: deepseek-v4.1-flash-free
