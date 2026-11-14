@@ -549,7 +549,12 @@ async function snapshotCurrent(p) {
     title: '（未识别到标题）', desc: '', author: '', comments: [],
     url: p.url(), video: null, loginWall: false,
   });
-  const shot = await withFallbackAfter(screenshot(p), 2500, '');
+  let shot = await withFallbackAfter(screenshot(p), 2500, '');
+  // 整窗截图超时会返回空串，大屏就只剩黑屏：退回低分辨率实时帧兜底
+  if (!shot) {
+    const buf = await withFallbackAfter(liveShot(p), 3000, null);
+    if (buf) shot = 'data:image/jpeg;base64,' + buf.toString('base64');
+  }
   const key = await withFallbackAfter(videoKey(p), 1500, p.url());
   current = {
     ...info,
@@ -619,7 +624,7 @@ async function clickCard(p, index = 0) {
 
 async function isPlaying(p) {
   return await p.evaluate(() => {
-    if (/[?&](?:modal_id|vid)=\d+/.test(location.href) || /\/video\/\d+/.test(location.pathname)) return true;
+    const urlHasModal = /[?&](?:modal_id|vid)=\d+/.test(location.href) || /\/video\/\d+/.test(location.pathname);
     const CARD_SELS = '[class*="videoCardContainer"], [class*="discover-video-card-item"], [class*="jingxuanVideoCard"]';
     const PLAYER_SELS = '[data-e2e*="video-player"], [class*="video-player"], [class*="videoPlayer"], [class*="player-container"], [role="dialog"]';
     for (const v of document.querySelectorAll('video')) {
@@ -630,6 +635,11 @@ async function isPlaying(p) {
       if (v.closest(PLAYER_SELS)) return true;
       // 无 modal_id 的全屏推荐流：视频必须占满较大视口，且不在卡片里
       if (r.width * r.height >= innerWidth * innerHeight * 0.45) return true;
+    }
+    // 地址栏还留着 modal_id，但页面里既没有可用播放器、也没有加载中的 video
+    // （弹窗被关掉/没渲染）：不能算在播放，否则只会一直按方向键，永远打不开新视频
+    if (urlHasModal) {
+      return [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 || v.readyState > 0);
     }
     return false;
   }).catch(() => false);
@@ -1293,6 +1303,16 @@ async function handle(req, res) {
         } else {
           await switchOnce(p);
           switched = true;
+          // 划一下没划出播放器（弹窗被关掉/尺寸为 0）时，重新点开一条，别让大屏一直黑着
+          if (!(await isPlaying(p))) {
+            if (expired()) return stale();
+            const reopened = await openFirstVideo(p, Number(body.index) || 0, expired);
+            if (!reopened.ok) {
+              if (reopened.stale) return stale();
+              lastError = reopened.reason || '';
+              return { ok: false, needLogin: !!reopened.needLogin, reason: reopened.reason };
+            }
+          }
         }
         if (expired()) return stale();
         await sleep(1500);

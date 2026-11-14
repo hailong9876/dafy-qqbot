@@ -1,52 +1,78 @@
 # -*- coding: utf-8 -*-
-"""大肥鱼 ChatTTS 语音合成服务（CPU 模式）
-独立 FastAPI 服务，常驻进程，由 bridge.js 守护。
-默认端口 18903。
+"""大肥鱼 语音合成服务（sherpa-onnx 本地 TTS，CPU）
+独立 FastAPI 服务，常驻进程，由 bridge.js / keep_alive.js 守护。默认端口 18903。
 
-ChatTTS 0.2.5 关键变化（踩坑记录）：
-- sample_random_speaker() 返回 **字符串**（speaker prompt token 序列），不是 numpy array
-- chat.load(source="huggingface") 返回 bool，必须检查返回值
-- chat.has_loaded() 是 method 不是 property
-- 需要 HF_ENDPOINT=https://hf-mirror.com 镜像才能在国内下载模型
+替换原因：ChatTTS 在 CPU 上 RTF≈1.4（21 字要 30 秒），Kokoro 实测 RTF≈1.7，
+都太慢。现默认用 sherpa-onnx 的 Matcha 中文模型 + vocos 声码器：
+- 纯 CPU，20 字约 0.5 秒（RTF≈0.13），45 字约 1 秒
+- 22.05kHz 输出
+- 中文 lexicon 分词，不依赖 espeak-ng
+
+模型目录：tts/models/
+  matcha-icefall-zh-baker/  （默认，需配合 tts/models/vocos-22khz-univ.onnx）
+  vits-zh-hf-fanchen-C/     （备用，16kHz）
 """
-import os, sys, io, json, time, hashlib, traceback, argparse, struct
-# ── 强制 CPU + HF 镜像（必须在 import torch 之前） ──
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+import io
+import os
+import struct
+import time
+import hashlib
+import traceback
+import argparse
 
 import numpy as np
-import torch
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # ── 路径 ──
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VOICE_DIR = os.path.join(BASE_DIR, "voices")
-CACHE_DIR = os.path.join(BASE_DIR, "cache")
-os.makedirs(VOICE_DIR, exist_ok=True)
+MODELS_ROOT = os.path.join(BASE_DIR, "models")
+CACHE_DIR = os.path.join(BASE_DIR, "cache_tts")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# ── 预设音色定义 ──
-# 每个音色首次生成时用固定 seed，生成后保存 .txt（字符串 spk_emb）
-# 后续永远从文件加载，sample_random_speaker 每次结果不同
-PRESET_VOICES = [
-    {"id": "dafy",    "name": "大肥鱼",   "desc": "大肥鱼专属声线",     "seed": 20251024},
-    {"id": "female1", "name": "标准女声", "desc": "温柔甜美女声",       "seed": 10001},
-    {"id": "female2", "name": "活力女声", "desc": "元气少女感",         "seed": 10002},
-    {"id": "female3", "name": "知性女声", "desc": "成熟知性女声",       "seed": 10003},
-    {"id": "male1",   "name": "标准男声", "desc": "低沉磁性男声",       "seed": 20001},
-    {"id": "male2",   "name": "青年男声", "desc": "阳光青年男声",       "seed": 20002},
-    {"id": "child1",  "name": "可爱童声", "desc": "软萌小朋友",         "seed": 30001},
+NUM_THREADS = int(os.environ.get("DAFY_TTS_THREADS", "4"))
+
+# 可用模型（按优先级探测，取第一个文件齐全的）
+MODEL_VARIANTS = [
+    {
+        "key": "matcha-baker",
+        "type": "matcha",
+        "dir": "matcha-icefall-zh-baker",
+        "model": ["model-steps-3.onnx", "model-steps-4.onnx", "model.onnx"],
+        "lexicon": ["lexicon.txt"],
+    },
+    {
+        "key": "fanchen",
+        "type": "vits",
+        "dir": "vits-zh-hf-fanchen-C",
+        "model": ["vits-zh-hf-fanchen-C.onnx", "model.onnx"],
+        "lexicon": ["lexicon.txt"],
+    },
 ]
 
-SAMPLE_RATE = 24000
+# Matcha 模型需要单独的声码器（放在 models/ 根目录）
+MATCHA_VOCODER = ["vocos-22khz-univ.onnx", "hifigan_v2.onnx"]
 
-# ── 全局 ChatTTS 实例 ──
-_chat = None
-voice_cache = {}   # id -> str (spk_emb)
+# ── 音色定义 ──
+# 当前模型（Matcha baker）只有 1 个 speaker，音色靠语速区分。
+VOICES = [
+    {"id": "dafy",    "name": "大肥鱼",   "desc": "默认（清晰少女感）", "gender": "female", "sid": 0, "speed": 1.0},
+    {"id": "female1", "name": "温柔女声", "desc": "语速偏慢，更柔和",   "gender": "female", "sid": 0, "speed": 0.9},
+    {"id": "female2", "name": "活力女声", "desc": "语速偏快，更活泼",   "gender": "female", "sid": 0, "speed": 1.15},
+    {"id": "female3", "name": "知性女声", "desc": "语速稍慢，平稳",     "gender": "female", "sid": 0, "speed": 0.95},
+    {"id": "male1",   "name": "标准男声", "desc": "当前模型无男声（回落默认）", "gender": "male", "sid": 0, "speed": 1.0},
+    {"id": "male2",   "name": "青年男声", "desc": "当前模型无男声（回落默认）", "gender": "male", "sid": 0, "speed": 1.0},
+    {"id": "child1",  "name": "可爱童声", "desc": "语速加快，偏童声",   "gender": "female", "sid": 0, "speed": 1.25},
+]
 
-app = FastAPI(title="大肥鱼 TTS", version="2.0.0")
+_variant = None
+_voices = VOICES
+_voice_map = {x["id"]: x for x in VOICES}
+_tts = None
+_sample_rate = 16000
+
+app = FastAPI(title="大肥鱼 TTS", version="4.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -55,73 +81,104 @@ app.add_middleware(
 )
 
 
-def get_chat():
-    """懒加载 ChatTTS 模型（CPU 模式）"""
-    global _chat
-    if _chat is not None and _chat.has_loaded():
-        return _chat
-    if _chat is not None:
-        try: _chat.unload()
-        except: pass
-        _chat = None
-    print("[tts] 正在加载 ChatTTS 模型（CPU 模式）...", flush=True)
+def _first_existing(directory, names):
+    for n in names:
+        p = os.path.join(directory, n)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def resolve_variant():
+    """探测可用模型目录"""
+    global _variant
+    if _variant is not None:
+        return _variant
+    for v in MODEL_VARIANTS:
+        d = os.path.join(MODELS_ROOT, v["dir"])
+        model = _first_existing(d, v["model"])
+        tokens = os.path.join(d, "tokens.txt")
+        if not (model and os.path.exists(tokens)):
+            continue
+        info = {
+            "key": v["key"],
+            "type": v["type"],
+            "dir": d,
+            "model": model,
+            "tokens": tokens,
+            "lexicon": _first_existing(d, v["lexicon"]),
+            "vocoder": None,
+        }
+        if v["type"] == "matcha":
+            info["vocoder"] = _first_existing(MODELS_ROOT, MATCHA_VOCODER)
+            if not info["vocoder"]:
+                continue  # 声码器还没下载，跳过这个模型
+        _variant = info
+        return _variant
+    raise RuntimeError(
+        "没有找到可用的 TTS 模型，请把模型解压到 " + MODELS_ROOT +
+        "（支持 " + " / ".join(v["dir"] for v in MODEL_VARIANTS) + "）"
+    )
+
+
+def get_voices():
+    return VOICES
+
+
+def get_tts():
+    """懒加载模型（只构造一次）"""
+    global _tts, _sample_rate
+    if _tts is not None:
+        return _tts
+
+    v = resolve_variant()
+    get_voices()
+
+    import sherpa_onnx
+
+    print(f"[tts] 正在加载 {v['type']} 模型 {v['key']}（CPU）...", flush=True)
     t0 = time.time()
-    from ChatTTS import Chat
-    _chat = Chat()
-    ok = _chat.load(source="huggingface", compile=False)
-    dt = time.time() - t0
-    if not ok:
-        raise RuntimeError(f"ChatTTS 加载失败，has_loaded={_chat.has_loaded()}")
-    print(f"[tts] ChatTTS 加载完成，用时 {dt:.1f}s，设备: cpu", flush=True)
-    return _chat
+    if v["type"] == "matcha":
+        model_cfg = sherpa_onnx.OfflineTtsModelConfig(
+            matcha=sherpa_onnx.OfflineTtsMatchaModelConfig(
+                acoustic_model=v["model"],
+                vocoder=v["vocoder"],
+                tokens=v["tokens"],
+                lexicon=v["lexicon"] or "",
+            ),
+            num_threads=NUM_THREADS,
+            provider="cpu",
+        )
+    else:
+        model_cfg = sherpa_onnx.OfflineTtsModelConfig(
+            vits=sherpa_onnx.OfflineTtsVitsModelConfig(
+                model=v["model"],
+                tokens=v["tokens"],
+                lexicon=v["lexicon"] or "",
+            ),
+            num_threads=NUM_THREADS,
+            provider="cpu",
+        )
+    cfg = sherpa_onnx.OfflineTtsConfig(model=model_cfg, max_num_sentences=1)
+    if not cfg.validate():
+        raise RuntimeError(f"{v['key']} 配置校验失败，请检查模型文件是否完整")
+    _tts = sherpa_onnx.OfflineTts(cfg)
+    _sample_rate = _tts.sample_rate or 16000
+    print(
+        f"[tts] 模型加载完成 {time.time() - t0:.1f}s，"
+        f"音色数={_tts.num_speakers}，采样率={_sample_rate}，线程={NUM_THREADS}",
+        flush=True,
+    )
+    return _tts
 
 
-def spk_path(voice_id):
-    return os.path.join(VOICE_DIR, f"{voice_id}.txt")
-
-
-def load_or_create_spk(voice_def):
-    """加载或生成指定音色的 spk_emb（字符串）并持久化"""
-    vid = voice_def["id"]
-    path = spk_path(vid)
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            spk = f.read()
-        print(f"[tts] 加载音色 {vid} ({len(spk)} chars)", flush=True)
-        return spk
-
-    print(f"[tts] 首次生成音色 {vid}（seed={voice_def['seed']}）...", flush=True)
-    chat = get_chat()
-    torch.manual_seed(voice_def["seed"])
-    spk = chat.sample_random_speaker()
-    if not isinstance(spk, str):
-        spk = str(spk)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(spk)
-    print(f"[tts] 音色 {vid} 已保存 ({len(spk)} chars)", flush=True)
-    return spk
-
-
-def ensure_all_voices():
-    """预加载所有预设音色到内存"""
-    for v in PRESET_VOICES:
-        try:
-            voice_cache[v["id"]] = load_or_create_spk(v)
-        except Exception as e:
-            print(f"[tts] 音色 {v['id']} 加载失败: {e}", flush=True)
-
-
-def cache_key(text, voice_id, **kw):
-    raw = f"{voice_id}|{text}|{kw.get('temperature',0.3)}|{kw.get('top_P',0.7)}|{kw.get('top_K',20)}"
+def cache_key(text, voice_id, speed):
+    raw = f"vits|{voice_id}|{speed}|{text}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
-def cache_path(key):
-    return os.path.join(CACHE_DIR, f"{key}.wav")
-
-
-def save_wav_bytes(wav_float32, sr=24000):
-    """手动写 32-bit float PCM WAV（返回 bytes，兼容所有 torchaudio 版本）"""
+def save_wav_bytes(wav_float32, sr):
+    """手动写 32-bit float PCM WAV（返回 bytes，无第三方依赖）"""
     wav = np.asarray(wav_float32, dtype=np.float32).ravel()
     peak = np.max(np.abs(wav)) if wav.size > 0 else 1.0
     if peak > 0.98:
@@ -138,115 +195,92 @@ def save_wav_bytes(wav_float32, sr=24000):
     return buf.getvalue()
 
 
-def synthesize_wav(text, voice_id, temperature=0.3, top_P=0.7, top_K=20, refine_text=""):
-    """核心合成函数，返回 wav bytes"""
+def synthesize_wav(text, voice_id, speed=1.0):
     if not text or not text.strip():
         raise ValueError("文本不能为空")
-    if len(text) > 1000:
-        raise ValueError("文本过长（上限 1000 字符）——CPU 推理太慢")
+    if len(text) > 2000:
+        raise ValueError("文本过长（上限 2000 字符）")
 
-    # 找 spk_emb
-    spk = voice_cache.get(voice_id)
-    if spk is None:
-        p = spk_path(voice_id)
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                spk = f.read()
-            voice_cache[voice_id] = spk
-        else:
-            raise ValueError(f"未知音色: {voice_id}")
+    v = _voice_map.get(voice_id) or _voice_map["dafy"]
+    sid = int(v["sid"])
+    spd = float(speed if speed else v["speed"])
 
-    chat = get_chat()
-    ensure_all_voices()
+    tts = get_tts()
+    if sid >= tts.num_speakers:
+        sid = 0
 
     t0 = time.time()
-    try:
-        params_refine_text = chat.RefineTextParams(
-            prompt=refine_text or "[oral_2][laugh_0][break_6]"
-        )
-        params_infer_code = chat.InferCodeParams(
-            spk_emb=spk,
-            temperature=float(temperature),
-            top_P=float(top_P),
-            top_K=int(top_K),
-        )
-        with torch.no_grad():
-            wavs = chat.infer(
-                [text],
-                params_refine_text=params_refine_text,
-                params_infer_code=params_infer_code,
-                skip_refine_text=False,
-                use_decoder=True,
-                split_text=False,
-            )
-    except Exception as e:
-        print(f"[tts] infer 失败: {e}", flush=True)
-        raise
+    audio = tts.generate(text, sid=sid, speed=spd)
+    samples = getattr(audio, "samples", None)
+    if samples is None:
+        raise RuntimeError("模型未返回音频数据")
+    sr = getattr(audio, "sample_rate", None) or _sample_rate
 
-    dt = time.time() - t0
-    wav = wavs[0]
-    if isinstance(wav, torch.Tensor):
-        wav = wav.cpu().numpy()
-    wav = np.asarray(wav, dtype=np.float32)
-
-    # 修复末尾截断：添加 0.5 秒静音 padding
-    silence_samples = int(SAMPLE_RATE * 0.5)  # 0.5 秒
-    silence = np.zeros(silence_samples, dtype=np.float32)
-    wav = np.concatenate([wav, silence])
-
-    data = save_wav_bytes(wav, SAMPLE_RATE)
-    print(f"[tts] 合成完成: {len(text)}字 → {len(data)//1024}KB，用时 {dt:.1f}s", flush=True)
+    wav = np.asarray(samples, dtype=np.float32).ravel()
+    if wav.size == 0:
+        raise RuntimeError("合成结果为空，可能是文本无法转换为音素")
+    wav = np.concatenate([wav, np.zeros(int(sr * 0.15), dtype=np.float32)])
+    data = save_wav_bytes(wav, sr)
+    print(
+        f"[tts] 合成完成: {len(text)}字 / {voice_id}(sid={sid},speed={spd}) → "
+        f"{len(data) // 1024}KB，用时 {time.time() - t0:.2f}s",
+        flush=True,
+    )
     return data
 
 
-def _gc_cache(max_items=50):
+def _gc_cache(max_items=200):
     try:
         files = [os.path.join(CACHE_DIR, f) for f in os.listdir(CACHE_DIR) if f.endswith(".wav")]
         if len(files) <= max_items:
             return
-        files.sort(key=lambda p: os.path.getmtime(p))
-        for p in files[:len(files) - max_items]:
+        files.sort(key=os.path.getmtime)
+        for p in files[: len(files) - max_items]:
             os.remove(p)
     except Exception:
         pass
 
 
-# ── API 路由 ──
+# ── API ──
 
 @app.get("/health")
 def health():
-    chat_ok = _chat is not None and _chat.has_loaded() if _chat else False
+    v = None
+    try:
+        v = resolve_variant()
+    except Exception:
+        pass
     return JSONResponse({
         "ok": True,
         "service": "dafy-tts",
-        "model_loaded": chat_ok,
-        "voices_loaded": len(voice_cache),
+        "engine": f"sherpa-onnx-{v['type']}" if v else "sherpa-onnx",
+        "model": v["key"] if v else None,
+        "model_loaded": _tts is not None,
+        "voices_loaded": len(_voices),
+        "num_speakers": getattr(_tts, "num_speakers", 0) if _tts is not None else 0,
+        "sample_rate": _sample_rate,
         "device": "cpu",
     })
 
 
 @app.get("/voices")
 def list_voices():
-    """列出所有预设音色 + 已克隆音色"""
-    ensure_all_voices()
-    voices = []
-    for v in PRESET_VOICES:
-        voices.append({
-            "id": v["id"], "name": v["name"], "desc": v["desc"],
-            "gender": v.get("gender", "unknown"),
-            "custom": False, "available": v["id"] in voice_cache,
-        })
-    # 扫描自定义音色
-    for fn in os.listdir(VOICE_DIR):
-        if not fn.endswith(".txt"): continue
-        vid = fn[:-4]
-        if any(p["id"] == vid for p in PRESET_VOICES): continue
-        voices.append({
-            "id": vid, "name": f"克隆音色 {vid[:8]}",
-            "desc": "用户上传参考音频生成", "gender": "unknown",
-            "custom": True, "available": True,
-        })
-    return JSONResponse({"ok": True, "voices": voices})
+    names = []
+    try:
+        names = get_voices()
+    except Exception:
+        names = _voices
+    return JSONResponse({
+        "ok": True,
+        "voices": [{
+            "id": v["id"],
+            "name": v["name"],
+            "desc": v["desc"],
+            "gender": v["gender"],
+            "custom": False,
+            "available": True,
+        } for v in names],
+    })
 
 
 @app.post("/synthesize")
@@ -256,23 +290,22 @@ async def synthesize(req: dict):
     if not text:
         raise HTTPException(400, "text 不能为空")
 
-    no_cache = bool(req.get("noCache"))
-    kw = {
-        "temperature": req.get("temperature", 0.3),
-        "top_P": req.get("top_P", 0.7),
-        "top_K": req.get("top_K", 20),
-    }
-    refine_text = req.get("refineText", "")
+    speed = req.get("speed")
+    try:
+        speed = float(speed) if speed not in (None, "") else None
+    except (TypeError, ValueError):
+        speed = None
+    if speed is not None:
+        speed = max(0.5, min(2.0, speed))
 
-    key = cache_key(text, voice_id, **kw)
-    cpath = cache_path(key)
-    if not no_cache and os.path.exists(cpath):
-        data = open(cpath, "rb").read()
+    key = cache_key(text, voice_id, speed or "")
+    cpath = os.path.join(CACHE_DIR, f"{key}.wav")
+    if not req.get("noCache") and os.path.exists(cpath):
         print(f"[tts] 缓存命中: {voice_id} {text[:20]}...", flush=True)
-        return Response(content=data, media_type="audio/wav")
+        return Response(content=open(cpath, "rb").read(), media_type="audio/wav")
 
     try:
-        data = synthesize_wav(text, voice_id, refine_text=refine_text, **kw)
+        data = synthesize_wav(text, voice_id, speed)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
@@ -281,52 +314,25 @@ async def synthesize(req: dict):
 
     try:
         open(cpath, "wb").write(data)
-        _gc_cache(max_items=50)
+        _gc_cache()
     except Exception:
         pass
 
     return Response(content=data, media_type="audio/wav", headers={
-        "X-TTS-Voice": voice_id, "X-TTS-Cache": "miss",
+        "X-TTS-Voice": voice_id,
+        "X-TTS-Cache": "miss",
+        "X-TTS-Engine": "sherpa-vits",
     })
 
 
 @app.post("/clone")
-async def clone_voice(file: UploadFile = File(...), name: str = ""):
-    """生成一个新的随机音色（ChatTTS 0.2.5 没有真正的 speaker encoder）"""
-    try:
-        raw = await file.read()
-        if len(raw) < 1024:
-            raise HTTPException(400, "音频文件太小")
-        import hashlib as _h
-        vid = _h.md5((file.filename or "voice" + str(time.time())).encode()).hexdigest()[:12]
-        seed = int(time.time() * 1000) % (2**31)
-        torch.manual_seed(seed)
-        chat = get_chat()
-        spk = chat.sample_random_speaker()
-        if not isinstance(spk, str): spk = str(spk)
-        with open(spk_path(vid), "w", encoding="utf-8") as f:
-            f.write(spk)
-        voice_cache[vid] = spk
-        display = name or f"克隆音色 {vid[:6]}"
-        print(f"[tts] 新音色 {vid} ({display}) 已生成，seed={seed}", flush=True)
-        return JSONResponse({"ok": True, "voiceId": vid, "name": display})
-    except HTTPException:
-        raise
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(500, f"克隆失败: {e}")
+async def clone_voice():
+    raise HTTPException(400, "当前离线引擎为 VITS 固定音色，不支持声音克隆")
 
 
 @app.delete("/voices/{voice_id}")
 def delete_voice(voice_id: str):
-    if any(p["id"] == voice_id for p in PRESET_VOICES):
-        raise HTTPException(400, "不能删除预设音色")
-    p = spk_path(voice_id)
-    if not os.path.exists(p):
-        raise HTTPException(404, "音色不存在")
-    os.remove(p)
-    voice_cache.pop(voice_id, None)
-    return JSONResponse({"ok": True})
+    raise HTTPException(400, "预设音色不可删除")
 
 
 def main():
@@ -334,18 +340,17 @@ def main():
     parser.add_argument("--port", type=int, default=18903)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--preload", action="store_true",
-                        help="启动时预加载模型和所有预设音色（首次 7s 左右）")
+                        help="启动时预加载模型（首次约 2~4 秒）")
     args = parser.parse_args()
 
     if args.preload:
         print("[tts] 预加载模型...", flush=True)
         t0 = time.time()
         try:
-            chat = get_chat()
-            ensure_all_voices()
-            print(f"[tts] 预加载完成，{time.time()-t0:.1f}s，已加载 {len(voice_cache)} 个音色", flush=True)
+            get_tts()
+            print(f"[tts] 预加载完成，{time.time() - t0:.1f}s", flush=True)
         except Exception as e:
-            print(f"[tts] 预加载失败（继续启动）: {e}", flush=True)
+            print(f"[tts] 预加载失败（继续启动，首次请求时会重试）: {e}", flush=True)
 
     import uvicorn
     print(f"[tts] 启动服务 http://{args.host}:{args.port}", flush=True)

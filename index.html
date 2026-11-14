@@ -730,10 +730,10 @@
       <label class="sw"><input type="checkbox" id="ttsAutoPlay"><i></i></label>
     </div>
     <div class="uirow">
-      <div class="uinfo"><b>引擎</b><span id="ttsEngineDesc">Edge-TTS 极快（联网）/ ChatTTS 高音质（离线 CPU）</span></div>
+      <div class="uinfo"><b>引擎</b><span id="ttsEngineDesc">Edge-TTS 极快（联网）/ 本地合成（离线约 0.5 秒/句）</span></div>
       <select id="ttsEngine" class="uisel" style="min-width:140px">
         <option value="edge">⚡ Edge-TTS（推荐）</option>
-        <option value="chattts">🐢 ChatTTS（离线）</option>
+        <option value="chattts">⚡ 本地语音（离线）</option>
       </select>
     </div>
     <div class="uirow">
@@ -759,12 +759,12 @@
         <button class="pickbtn" id="ttsCacheClear">🗑 清空</button>
       </div>
     </div>
-    <div class="uirow">
+    <div class="uirow" style="display:none">
       <div class="uinfo"><b>合成温度</b><span id="ttsTempVal">0.3</span></div>
       <input type="range" id="ttsTemp" min="0.1" max="1.0" step="0.05" value="0.3">
     </div>
-    <div class="uigroup sub" id="chatttsCloneSection">🧪 音色克隆（实验，仅 ChatTTS）</div>
-    <div class="uirow" id="chatttsCloneRow">
+    <div class="uigroup sub" id="chatttsCloneSection" style="display:none">🧪 音色克隆（实验，仅 ChatTTS）</div>
+    <div class="uirow" id="chatttsCloneRow" style="display:none">
       <div class="uinfo"><b>上传参考音频</b><span>3-10 秒的人声片段，生成一个专属音色 ID</span></div>
       <button class="pickbtn" id="ttsCloneBtn">📁 选择文件</button>
       <input type="file" id="ttsCloneFile" accept="audio/*" style="display:none">
@@ -1926,11 +1926,12 @@ async function loadTTS(){
   ttsEl.voice.value=uiState.ttsVoice||'dafy';
   // 根据引擎显示/隐藏克隆区域
   const isEdge = (uiState.ttsEngine||'edge')==='edge';
-  ttsEl.cloneSection.style.display=isEdge?'none':'block';
-  ttsEl.cloneRow.style.display=isEdge?'none':'flex';
+  // 离线引擎不支持克隆，克隆区域始终隐藏
+  ttsEl.cloneSection.style.display='none';
+  ttsEl.cloneRow.style.display='none';
   ttsEl.hint.textContent=isEdge
     ? '⚡ Edge-TTS：联网使用，微软官方音色，合成速度极快（~1秒）。'
-    : '🐢 ChatTTS：离线 CPU 推理，音色丰富但较慢（~30-60秒/句）。';
+    : '⚡ 本地语音：离线合成，约 0.5 秒/句（长句 1 秒左右），音色为固定女声。';
   // 查服务状态
   try{
     const sr=await fetch(QQBOT_API+getTtsApi()+'/status');
@@ -3826,10 +3827,17 @@ function fmtDaily(count,limit){
   return Number(limit)>0 ? `今日 ${c}/${limit}` : `今日 ${c} 条 · 不限量`;
 }
 function vidClearLiveFrame(){
-  vidLiveGeneration++;
-  vid.live.style.display='none';
-  vid.live.removeAttribute('src');
-  vid.ph.style.display='';
+  // 必须真正停掉推流循环：只加 generation 会让循环自己断掉却把 vidLiveOn 留成 true，
+  // 之后再也起不来 —— 表现就是「点下一条后一直黑屏」
+  vidLiveStop();
+  // 切换期间保留上一帧（冻结画面），新帧回来直接替换，避免整块变黑
+  if(vid.live.getAttribute('src')){
+    vid.live.style.display='block';
+    vid.ph.style.display='none';
+  }else{
+    vid.live.style.display='none';
+    vid.ph.style.display='';
+  }
   vid.ph.childNodes[0].textContent='正在切换视频…';
   vid.launch.style.display='none';
   vid.launchTip.textContent='';
@@ -3947,6 +3955,8 @@ function vidShowVideo(v){
     vid.ph.style.display='none';
   }
   vidUpdateBox();
+  // 实时画面之前连续失败被关掉了：新视频来了就重新开一次，弹窗/推流可能已经恢复
+  if(vid.mask.classList.contains('show') && !vidLiveOn) vidLiveStart();
   vid.title.textContent=(v&&v.title)||'（未识别到标题）';
   const bits=[];
   if(v&&v.author) bits.push(v.author);
@@ -4206,6 +4216,8 @@ async function vidStep(mode){
       vidBusy=false;
       vid.next.disabled=false;
     }
+    // 切换失败/被取消时同样要把实时画面接回来，不能停在黑屏占位
+    if(vid.mask.classList.contains('show') && !vidLiveOn) vidLiveStart();
   }
 }
 function vidScheduleNext(){
