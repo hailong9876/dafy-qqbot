@@ -43,9 +43,24 @@ let lastError = '';
 let intentionalClose = false; // 主动关闭标记（/api/close、定期重开时不触发自动拉起）
 let feedCount = 0;            // 本次浏览器会话已刷视频数
 const MAX_FEED_PER_BROWSER = 5; // 每刷 5 条主动重开浏览器，清掉抖音页面累积的内存防崩
+let nextRequestSeq = 0;          // 最新“下一条”请求序号
+let nextTask = null;             // 串行操作同一个浏览器，旧请求发现已有更新后尽快退出
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[video]', ...a);
+
+// 页面/CDP 偶发不响应时降级返回，不能让整次切换被一个快照步骤无限占住
+async function withFallbackAfter(promise, ms, fallback) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise).catch(() => fallback),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /* ---------------- 浏览器生命周期 ---------------- */
 
@@ -88,7 +103,7 @@ async function launch() {
     page.setDefaultTimeout(20000);
     ctx.on('close', () => {
       ctx = null; page = null; current = null;
-      cdpSession = null; liveBuf = null;
+      cdpSession = null; liveBuf = null; liveAt = 0; liveGeneration++;
       screencastOn = false; screencastHandler = null;
       log('浏览器已关闭');
       // 非主动关闭（崩溃等）时自动拉起，避免大屏一直黑屏
@@ -159,11 +174,19 @@ async function isLoggedIn() {
 async function loginWallVisible(p) {
   try {
     return await p.evaluate(() => {
+      const bodyText = (document.body.innerText || '').slice(0, 1500);
       const hasPhone = [...document.querySelectorAll('input')].some(
         (i) => /手机号|验证码/.test(i.getAttribute('placeholder') || '')
       );
-      const txt = (document.body.innerText || '').slice(0, 1500);
-      return hasPhone && /登录|扫码|验证码/.test(txt);
+      if (hasPhone && /登录|扫码|验证码/.test(bodyText)) return true;
+      // 扫码登录弹窗初期没有手机号输入框，只检查可见弹层，避免把页面右上角“登录”按钮误判成登录墙
+      return [...document.querySelectorAll('[role="dialog"], [class*="login-modal"], [class*="loginModal"], [class*="modal"], [class*="Modal"]')].some((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 100 || r.height < 100) return false;
+        const txt = (el.innerText || '').slice(0, 1200);
+        const hasQr = !!el.querySelector('canvas, img, [class*="qrcode"], [class*="qr-code"], [class*="QRCode"]');
+        return hasQr && /扫码/.test(txt) && /登录/.test(txt);
+      });
     });
   } catch {
     return false;
@@ -392,48 +415,61 @@ async function captureJpeg(p, quality, scale) {
 let screencastOn = false;
 let screencastHandler = null;
 let lastLiveReq = 0;
+let liveGeneration = 0; // 浏览器重开/停止推流后，旧会话迟到的帧直接作废
+let screencastStarting = null;
 
 async function startScreencast(p) {
   if (screencastOn) return true;
-  const s = await cdpFor(p);
-  if (!s) return false;
-  screencastOn = true;
-  screencastHandler = async (ev) => {
+  if (screencastStarting) return screencastStarting;
+  const generation = liveGeneration;
+  screencastStarting = (async () => {
+    const s = await cdpFor(p);
+    if (!s || generation !== liveGeneration || p !== page) return false;
+    screencastOn = true;
+    const handler = async (ev) => {
+      try {
+        if (generation === liveGeneration && screencastOn && cdpSession === s) {
+          liveBuf = Buffer.from(ev.data, 'base64');
+          liveAt = Date.now();
+        }
+        await s.send('Page.screencastFrameAck', { sessionId: ev.sessionId });
+      } catch {}
+    };
+    screencastHandler = handler;
+    s.on('Page.screencastFrame', handler);
     try {
-      liveBuf = Buffer.from(ev.data, 'base64');
-      liveAt = Date.now();
-      await s.send('Page.screencastFrameAck', { sessionId: ev.sessionId });
-    } catch {}
-  };
-  s.on('Page.screencastFrame', screencastHandler);
-  try {
-    await s.send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: 48,
-      maxWidth: 960,
-      maxHeight: 540,
-      everyNthFrame: 2,   // 隔帧推，减半编码与解码压力（大屏观感几乎无差别）
-    });
-    log('实时画面推流已开启');
-    return true;
-  } catch (e) {
-    screencastOn = false;
-    try { s.off('Page.screencastFrame', screencastHandler); } catch {}
-    screencastHandler = null;
-    return false;
-  }
+      await s.send('Page.startScreencast', {
+        format: 'jpeg',
+        quality: 48,
+        maxWidth: 960,
+        maxHeight: 540,
+        everyNthFrame: 2,   // 隔帧推，减半编码与解码压力（大屏观感几乎无差别）
+      });
+      log('实时画面推流已开启');
+      return true;
+    } catch (e) {
+      if (generation === liveGeneration) {
+        screencastOn = false;
+        screencastHandler = null;
+      }
+      try { s.off('Page.screencastFrame', handler); } catch {}
+      return false;
+    }
+  })().finally(() => { screencastStarting = null; });
+  return screencastStarting;
 }
 
 async function stopScreencast() {
-  if (!screencastOn) return;
+  const s = cdpSession;
+  const handler = screencastHandler;
   screencastOn = false;
-  try {
-    if (cdpSession) {
-      await cdpSession.send('Page.stopScreencast');
-      if (screencastHandler) cdpSession.off('Page.screencastFrame', screencastHandler);
-    }
-  } catch {}
   screencastHandler = null;
+  liveGeneration++;
+  liveBuf = null;
+  liveAt = 0;
+  if (!s) return;
+  try { if (handler) s.off('Page.screencastFrame', handler); } catch {}
+  try { await s.send('Page.stopScreencast'); } catch {}
 }
 
 // 面板关掉 15 秒后自动停推流，避免后台白耗 CPU
@@ -453,37 +489,55 @@ async function screenshot(p) {
 }
 
 // 实时画面：低质量、带缓存，供大屏以 2fps 轮询（避免每次都重截全页）
+const LIVE_SHOT_TIMEOUT_MS = 2500; // 截图卡住时必须放手，不能让整条实时链路停摆
 let liveBuf = null;
 let liveAt = 0;
-let liveBusy = false;
+let livePending = null; // 真实截图任务：超时后底层可能仍在跑，避免并发堆积
 let lastEnsureAt = 0;
 async function liveShot(p) {
-  if (liveBusy) return liveBuf;
+  // 已有截图任务在执行：帧够新才复用，否则让前端稍后重试，不返回过期画面
+  if (livePending) return liveBuf && Date.now() - liveAt < 1200 ? liveBuf : null;
   if (liveBuf && Date.now() - liveAt < 500) return liveBuf;
-  liveBusy = true;
-  try {
-    const buf = await captureJpeg(p, 42, 0.5);   // 半分辨率 + 低质量，画面够看又不卡
-    liveBuf = buf;
-    liveAt = Date.now();
-    return buf;
-  } catch {
-    return liveBuf;
-  } finally {
-    liveBusy = false;
-  }
+  const generation = liveGeneration;
+  const task = captureJpeg(p, 42, 0.5); // 半分辨率 + 低质量，画面够看又不卡
+  livePending = task;
+  task.catch(() => {}).finally(() => {
+    if (livePending === task) livePending = null;
+  });
+  const buf = await withFallbackAfter(task, LIVE_SHOT_TIMEOUT_MS, null);
+  if (generation !== liveGeneration || p !== page) return null;
+  if (!buf) return liveBuf && Date.now() - liveAt < 1500 ? liveBuf : null;
+  liveBuf = buf;
+  liveAt = Date.now();
+  return buf;
 }
 
-// 主动让播放器播起来（浏览器自动播放策略常导致视频停在 0 秒）
+// 只播放画面里可见面积最大的当前视频；其余预加载/已划走视频全部暂停静音
 async function ensurePlaying(p) {
   try {
     await p.bringToFront().catch(() => {});
     return await p.evaluate(async () => {
-      const v = document.querySelector('video');
-      if (!v) return { ok: false, reason: 'no-video' };
-      try { await v.play(); } catch (e) {
-        try { v.muted = true; await v.play(); } catch {}
+      const videos = [...document.querySelectorAll('video')];
+      let v = null;
+      let best = 120 * 120;
+      for (const item of videos) {
+        const r = item.getBoundingClientRect();
+        const visible =
+          Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) *
+          Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0));
+        if (visible > best) { best = visible; v = item; }
       }
-      return { ok: !v.paused, paused: !!v.paused, muted: !!v.muted, t: v.currentTime };
+      if (!v) return { ok: false, reason: 'no-video' };
+      for (const item of videos) {
+        if (item === v) continue;
+        try { item.pause(); } catch {}
+        item.muted = true;
+      }
+      v.muted = false;
+      try { await v.play(); } catch (e) {
+        try { v.muted = true; await v.play(); v.muted = false; } catch {}
+      }
+      return { ok: !v.paused, paused: !!v.paused, muted: !!v.muted, t: v.currentTime, silenced: videos.length - 1 };
     });
   } catch {
     return { ok: false, reason: 'play-failed' };
@@ -491,11 +545,15 @@ async function ensurePlaying(p) {
 }
 
 async function snapshotCurrent(p) {
-  const info = await readVideoInfo(p);
-  const shot = await screenshot(p);
+  const info = await withFallbackAfter(readVideoInfo(p), 2500, {
+    title: '（未识别到标题）', desc: '', author: '', comments: [],
+    url: p.url(), video: null, loginWall: false,
+  });
+  const shot = await withFallbackAfter(screenshot(p), 2500, '');
+  const key = await withFallbackAfter(videoKey(p), 1500, p.url());
   current = {
     ...info,
-    key: await videoKey(p),
+    key,
     shot,
     shotAt: Date.now(),
   };
@@ -561,11 +619,19 @@ async function clickCard(p, index = 0) {
 
 async function isPlaying(p) {
   return await p.evaluate(() => {
-    if (/modal_id=/.test(location.href)) return true;
-    const v = document.querySelector('video');
-    if (!v) return false;
-    const r = v.getBoundingClientRect();
-    return r.width > 200 && r.height > 200;
+    if (/[?&](?:modal_id|vid)=\d+/.test(location.href) || /\/video\/\d+/.test(location.pathname)) return true;
+    const CARD_SELS = '[class*="videoCardContainer"], [class*="discover-video-card-item"], [class*="jingxuanVideoCard"]';
+    const PLAYER_SELS = '[data-e2e*="video-player"], [class*="video-player"], [class*="videoPlayer"], [class*="player-container"], [role="dialog"]';
+    for (const v of document.querySelectorAll('video')) {
+      const r = v.getBoundingClientRect();
+      if (r.width <= 300 || r.height <= 300 || r.bottom <= 0 || r.right <= 0 || r.top >= innerHeight || r.left >= innerWidth) continue;
+      // 精选页卡片也会自动播放预览，不能把它当成已经打开的播放器
+      if (v.closest(CARD_SELS)) continue;
+      if (v.closest(PLAYER_SELS)) return true;
+      // 无 modal_id 的全屏推荐流：视频必须占满较大视口，且不在卡片里
+      if (r.width * r.height >= innerWidth * innerHeight * 0.45) return true;
+    }
+    return false;
   }).catch(() => false);
 }
 
@@ -579,6 +645,13 @@ async function videoKey(p) {
 
 // 只切一次：抖音里一次 ArrowDown / 一次滚轮就是一条，连按会一次划走两条
 async function switchOnce(p) {
+  // 先让旧视频闭嘴，避免切换动画期间残留声音或预加载视频突然出声
+  await p.evaluate(() => {
+    for (const v of document.querySelectorAll('video')) {
+      try { v.pause(); } catch {}
+      v.muted = true;
+    }
+  }).catch(() => {});
   const arrow = p.locator('[data-e2e="video-switch-next-arrow"]').first();
   try {
     if (await arrow.isVisible({ timeout: 1500 })) {
@@ -592,14 +665,26 @@ async function switchOnce(p) {
   return 'key';
 }
 
-async function openFirstVideo(p, index = 0) {
+async function openFirstVideo(p, index = 0, shouldCancel) {
+  const cancelled = () => shouldCancel && shouldCancel();
+  const stale = () => ({ ok: false, stale: true, reason: '已有更新的下一条请求' });
   const r = await clickCard(p, index);
+  if (cancelled()) return stale();
   if (!r.ok) return r;
-  await sleep(4500);
-  if (await loginWallVisible(p)) {
-    return { ok: false, needLogin: true, reason: '抖音要求登录后才能看视频，请点「登录抖音」完成扫码' };
+  // 抖音偶尔要好几秒才弹出播放器并写入 modal_id，有限等待而不是固定睡一次就下结论
+  for (let i = 0; i < 20; i++) {
+    await sleep(600);
+    if (cancelled()) return stale();
+    const loginWall = await loginWallVisible(p);
+    if (cancelled()) return stale();
+    if (loginWall) {
+      return { ok: false, needLogin: true, reason: '抖音要求登录后才能看视频，请点「登录抖音」完成扫码' };
+    }
+    const playing = await isPlaying(p);
+    if (cancelled()) return stale();
+    if (playing) return { ok: true };
   }
-  return { ok: true };
+  return { ok: false, reason: '视频卡片已点击，但播放器没有打开，请重试' };
 }
 
 /* ---------------- 评论 ---------------- */
@@ -660,7 +745,7 @@ async function findCommentInput(p) {
   return null;
 }
 
-async function openCommentPanel(p) {
+async function openCommentPanel(p, isRetry = false) {
   if (await findCommentInput(p)) return true;
 
   // 1) 右侧评论图标：精选页唯一入口。单独定位，避免组合选择器 .first() 命中隐藏元素
@@ -719,7 +804,12 @@ async function openCommentPanel(p) {
     }
   } catch {}
 
-  return !!(await findCommentInput(p));
+  const opened = !!(await findCommentInput(p));
+  if (!opened && !isRetry) {
+    await sleep(800);
+    return openCommentPanel(p, true);
+  }
+  return opened;
 }
 
 const readEditor = (e) =>
@@ -1156,55 +1246,84 @@ async function handle(req, res) {
 
     if (path === '/api/next') {
       const body = await readBody(req);
-      // 每刷满 5 条主动重开浏览器，清内存防崩
-      if (feedCount >= MAX_FEED_PER_BROWSER) {
-        log(`已刷 ${feedCount} 条，主动重开浏览器释放内存`);
-        await closeBrowser();
-      }
-      let p = await openHome();
-      await p.bringToFront().catch(() => {});
-      if (await loginWallVisible(p)) {
-        return json(res, 200, {
-          ok: false,
-          needLogin: true,
-          reason: '抖音要求登录后才能看视频，请在大屏点「登录抖音」完成扫码',
-        });
-      }
-      // 已经在播放器里就直接下一条；否则先点开一个视频卡片
-      const playing = await isPlaying(p);
-      const from = typeof body.from === 'string' ? body.from : '';
-      const mode = body.mode === 'auto' ? 'auto' : 'force';
-      const before = playing ? await videoKey(p) : '';
-      let switched = false;
-      if (!playing) {
-        const opened = await openFirstVideo(p, Number(body.index) || 0);
-        if (!opened.ok) {
-          lastError = opened.reason || '';
-          return json(res, 200, { ok: false, needLogin: !!opened.needLogin, reason: opened.reason });
+      const requestSeq = ++nextRequestSeq;
+      const previous = nextTask;
+      const expired = () => requestSeq !== nextRequestSeq;
+      const stale = () => ({ ok: false, stale: true, reason: '已有更新的下一条请求' });
+      const task = (async () => {
+        // 同一个浏览器不能并发开关/切换；新请求只等旧请求退出当前步骤，不等它跑完整条流程
+        if (previous) await previous.catch(() => {});
+        if (expired()) return stale();
+        // 每刷满 5 条主动重开浏览器，清内存防崩
+        if (feedCount >= MAX_FEED_PER_BROWSER) {
+          log(`已刷 ${feedCount} 条，主动重开浏览器释放内存`);
+          await closeBrowser();
+          if (expired()) return stale();
         }
-        switched = true;
-      } else if (mode === 'auto' && from && before && before !== from) {
-        // 抖音已经自己播到下一条了：不再切，直接接住当前视频，避免一次划两条
-      } else {
-        await switchOnce(p);
-        switched = true;
+        let p = await openHome();
+        if (expired()) return stale();
+        await p.bringToFront().catch(() => {});
+        const loginWall = await loginWallVisible(p);
+        if (expired()) return stale();
+        if (loginWall) {
+          return {
+            ok: false,
+            needLogin: true,
+            reason: '抖音要求登录后才能看视频，请在大屏点「登录抖音」完成扫码',
+          };
+        }
+        // 已经在播放器里就直接下一条；否则先点开一个视频卡片
+        const playing = await isPlaying(p);
+        if (expired()) return stale();
+        const from = typeof body.from === 'string' ? body.from : '';
+        const mode = body.mode === 'auto' ? 'auto' : 'force';
+        const before = playing ? await videoKey(p) : '';
+        if (expired()) return stale();
+        let switched = false;
+        if (!playing) {
+          const opened = await openFirstVideo(p, Number(body.index) || 0, expired);
+          if (!opened.ok) {
+            if (opened.stale) return stale();
+            lastError = opened.reason || '';
+            return { ok: false, needLogin: !!opened.needLogin, reason: opened.reason };
+          }
+          switched = true;
+        } else if (mode === 'auto' && from && before && before !== from) {
+          // 抖音已经自己播到下一条了：不再切，直接接住当前视频，避免一次划两条
+        } else {
+          await switchOnce(p);
+          switched = true;
+        }
+        if (expired()) return stale();
+        await sleep(1500);
+        if (expired()) return stale();
+        await ensurePlaying(p);   // 抖音默认会自动暂停，主动播起来
+        if (expired()) return stale();
+        await sleep(700);
+        if (expired()) return stale();
+        if (await loginWallVisible(p)) {
+          return { ok: false, needLogin: true, reason: '登录后才能真正播放，请点「登录抖音」' };
+        }
+        if (expired()) return stale();
+        const snap = await snapshotCurrent(p);
+        if (expired()) return stale();
+        lastError = '';
+        feedCount++;
+        return { ok: true, loggedIn: await isLoggedIn(), switched, feedCount, video: snap };
+      })();
+      nextTask = task;
+      try {
+        return json(res, 200, await task);
+      } finally {
+        if (nextTask === task) nextTask = null;
       }
-      await sleep(1500);
-      await ensurePlaying(p);   // 抖音默认会自动暂停，主动播起来
-      await sleep(700);
-      if (await loginWallVisible(p)) {
-        return json(res, 200, { ok: false, needLogin: true, reason: '登录后才能真正播放，请点「登录抖音」' });
-      }
-      const snap = await snapshotCurrent(p);
-      lastError = '';
-      feedCount++;
-      return json(res, 200, { ok: true, loggedIn: await isLoggedIn(), switched, feedCount, video: snap });
     }
 
     if (path === '/api/live.jpg') {
-      if (!page || page.isClosed()) {
+      // 切换/重开期间不返回上一条的缓存帧，也不挂起请求；前端会稍后单发重试
+      if (nextTask || !page || page.isClosed()) {
         res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' });
-        return res.end('browser-not-running');
+        return res.end(nextTask ? 'switching' : 'browser-not-running');
       }
       lastLiveReq = Date.now();
       // 保持播放：面板在刷新画面时顺手把被暂停的视频播起来（每 4 秒最多一次）
@@ -1212,7 +1331,7 @@ async function handle(req, res) {
         lastEnsureAt = Date.now();
         ensurePlaying(page).catch(() => {});
       }
-      await startScreencast(page);
+      await withFallbackAfter(startScreencast(page), 3000, false); // 推流启动卡住也不能让图片请求挂死
       let buf = null;
       if (liveBuf && Date.now() - liveAt < 2000) buf = liveBuf;  // 推流帧，直接返回（静止画面也别急着截图）
       if (!buf) buf = await liveShot(page);                        // 推流刚启动还没出帧，退回截图

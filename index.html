@@ -3778,14 +3778,14 @@ const vid={
   fold:document.getElementById('vidFold'),
   expand:document.getElementById('vidExpand'),
 };
-let vidRunning=false, vidTimer=null, vidBusy=false;
-let vidLiveOn=false, vidLiveTimer=null, vidLiveFail=0, vidLiveBroken=false;
+let vidRunning=false, vidTimer=null, vidBusy=false, vidAbort=null;
+let vidLiveOn=false, vidLiveTimer=null, vidLiveFail=0, vidLiveBroken=false, vidLiveGeneration=0;
 let vidSkipStreak=0, vidSkipTotal=0;
 let vidNextDelay=0;
 let vidLastKey='';   // 上一条已处理视频的 modal_id，用来识别抖音自己跳过去的下一条
 
-async function vidApi(path,body,method){
-  const opt={method:method||'POST',headers:{'Content-Type':'application/json'}};
+async function vidApi(path,body,method,signal){
+  const opt={method:method||'POST',headers:{'Content-Type':'application/json'},signal};
   if(opt.method==='POST' && body!==undefined) opt.body=JSON.stringify(body);
   const r=await fetch(VID+path,opt);
   let j=null; try{ j=await r.json(); }catch(e){}
@@ -3825,43 +3825,82 @@ function fmtDaily(count,limit){
   const c=Number(count)||0;
   return Number(limit)>0 ? `今日 ${c}/${limit}` : `今日 ${c} 条 · 不限量`;
 }
+function vidClearLiveFrame(){
+  vidLiveGeneration++;
+  vid.live.style.display='none';
+  vid.live.removeAttribute('src');
+  vid.ph.style.display='';
+  vid.ph.childNodes[0].textContent='正在切换视频…';
+  vid.launch.style.display='none';
+  vid.launchTip.textContent='';
+}
 function vidLiveStart(){
   if(vidLiveOn || vidLiveBroken) return;
   vidLiveOn=true; vidLiveFail=0;
   vidUpdateBox(); lastBoxAt=Date.now();
+  // 服务端还是旧版本（没有 /api/live.jpg）或截图失败：退回静态画面，别一直白屏
+  const markFail=()=>{
+    vidLiveFail++;
+    if(vidLiveFail<3) return;
+    vidLiveBroken=true;
+    vidLiveStop();
+    if(vid.live.src && vid.live.style.display==='block') return;
+    vid.ph.style.display='';
+    vid.launch.style.display='none';
+    vid.launchTip.textContent='实时画面没拿到：点上面的「▶ 启动视频服务」';
+  };
   const tick=()=>{
     if(!vidLiveOn) return;
     if(Date.now()-lastBoxAt>5000){ lastBoxAt=Date.now(); vidUpdateBox(); }
+    const generation=vidLiveGeneration;
     const n=new Image();
+    let settled=false;
+    const done=(retryDelay)=>{
+      // 旧一轮（关闭面板/浏览器重开）的回调不再续调度，避免并行出多条图片循环
+      if(!vidLiveOn || generation!==vidLiveGeneration) return;
+      const folded=vid.mask.classList.contains('fold');
+      // 上一张加载/解码完成后才取下一张，避免请求堆积和旧图乱序覆盖
+      vidLiveTimer=setTimeout(tick, retryDelay||(folded?900:70));
+    };
+    // 图片既不 onload 也不 onerror 时自己收尾，否则整个实时画面会永久停住
+    const watchdog=setTimeout(()=>{
+      if(settled) return;
+      settled=true;
+      n.onload=null; n.onerror=null;
+      if(vidLiveOn && generation===vidLiveGeneration) markFail();
+      done(300);
+    },4000);
     n.onload=()=>{
-      vidLiveFail=0;
-      vid.live.src=n.src;
-      if(vid.live.style.display==='none'){
-        vid.live.style.display='block';
-        vid.ph.style.display='none';
-        vidLayoutLive();
+      if(settled) return;
+      settled=true; clearTimeout(watchdog);
+      if(vidLiveOn && generation===vidLiveGeneration){
+        vidLiveFail=0;
+        vid.live.src=n.src;
+        if(vid.live.style.display==='none'){
+          vid.live.style.display='block';
+          vid.ph.style.display='none';
+          vidLayoutLive();
+        }
       }
+      done();
     };
     n.onerror=()=>{
-      vidLiveFail++;
-      // 服务端还是旧版本（没有 /api/live.jpg）或截图失败：退回静态画面，别一直白屏
-      if(vidLiveFail>=3){
-        vidLiveBroken=true;
-        vidLiveStop();
-        if(vid.live.src && vid.live.style.display==='block') return;
-        vid.ph.style.display='';
-        vid.launch.style.display='none';
-        vid.launchTip.textContent='实时画面没拿到：点上面的「▶ 启动视频服务」';
+      if(settled) return;
+      settled=true; clearTimeout(watchdog);
+      if(vidLiveOn && generation===vidLiveGeneration){
+        // /api/next 切换期间服务端会短暂返回 503：稍后重试，不当成推流永久故障
+        if(vidBusy){ done(250); return; }
+        markFail();
       }
+      done();
     };
     n.src=VID+'/api/live.jpg?t='+Date.now();
-    const folded=vid.mask.classList.contains('fold');
-    vidLiveTimer=setTimeout(tick, folded?900:135);
   };
   tick();
 }
 function vidLiveStop(){
   vidLiveOn=false;
+  vidLiveGeneration++;
   if(vidLiveTimer){ clearTimeout(vidLiveTimer); vidLiveTimer=null; }
 }
 async function vidPoll(){
@@ -4015,7 +4054,7 @@ function vidParseJudge(txt){
   }
   return {skip:false, reason:'', comment:'', parsed:false};
 }
-async function vidWriteComment(v){
+async function vidWriteComment(v,signal){
   const c=aiConf();
   const url=aiChatUrl(c);
   const key=aiChatKey(c);
@@ -4045,7 +4084,8 @@ skip 为 false 时，comment 写一条 20 字内的口语化短评：像真人�
   let r=await fetch(url,{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify(body)
+    body:JSON.stringify(body),
+    signal
   });
   // C2 兜底：部分模型/网关不支持 response_format，被拒时去掉它重试一次
   if(!r.ok && (r.status===400||r.status===422)){
@@ -4053,7 +4093,8 @@ skip 为 false 时，comment 写一条 20 字内的口语化短评：像真人�
     r=await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-      body:JSON.stringify(body)
+      body:JSON.stringify(body),
+      signal
     });
   }
   if(!r.ok) throw new Error('AI 接口 HTTP '+r.status);
@@ -4068,13 +4109,29 @@ skip 为 false 时，comment 写一条 20 字内的口语化短评：像真人�
   return judge;
 }
 async function vidStep(mode){
-  if(vidBusy){ vidLog('上一条还没处理完，稍等一下～'); return; }
-  vidBusy=true; vid.next.disabled=true;
+  // 最新一次操作优先：取消卡在上一条的网络请求/AI 判断，旧结果不再覆盖新视频
+  let prefix=vidBusy?'已跳过上一条，':'';
+  if(vidAbort) vidAbort.abort();
+  const controller=new AbortController();
+  vidAbort=controller;
+  vidBusy=true;
+  vid.next.disabled=false;   // 处理中也允许点下一条，直接取消当前这条
+  const cancelled=()=>vidAbort!==controller||controller.signal.aborted;
+  const watchdog=setTimeout(()=>{
+    if(!cancelled()){
+      controller.abort();
+      vidLog('这一条处理超时，已跳过',true);
+    }
+  },120000);
   try{
     // 连续跳过的上限：跳太多次就停下来，避免一直空转
     for(let tries=0; tries<=6; tries++){
-      vidLog('正在刷下一条…');
-      const j=await vidApi('/api/next',{from:vidLastKey,mode:mode||'force'});
+      if(cancelled()) return;
+      vidClearLiveFrame();
+      vidLog(prefix+'正在刷下一条…'); prefix='';
+      const j=await vidApi('/api/next',{from:vidLastKey,mode:mode||'force'},undefined,controller.signal);
+      if(cancelled()) return;
+      if(j.stale) return;   // 服务端已改用更新的下一条请求，旧结果直接作废
       if(!j.ok){
         if(j.needLogin){ vidLog('需要登录抖音：点「登录抖音」完成扫码',true); vidStopAuto(); }
         else vidLog('刷视频失败：'+(j.reason||'未知原因'),true);
@@ -4087,13 +4144,18 @@ async function vidStep(mode){
 
       vidLog('大肥鱼在判断这条好不好看…');
       let judge=null;
-      try{ judge=await vidWriteComment(v); }catch(e){ vidLog('AI 判断失败：'+e.message,true); }
+      try{ judge=await vidWriteComment(v,controller.signal); }catch(e){
+        if(cancelled()) return;
+        vidLog('AI 判断失败：'+e.message,true);
+      }
+      if(cancelled()) return;
       const skip=!!(judge&&judge.skip) && vidSkipStreak<4;   // 连续跳 4 条就强制看一条
       if(skip){
         vidSkipStreak++; vidSkipTotal++;
         vidAddItem(v, judge.reason||'不合口味','不好看 · 已划走','err');
         vidLog(`觉得不好看，划走了：${judge.reason||'没意思'}`);
         await new Promise(r=>setTimeout(r,2200));
+        if(cancelled()) return;
         continue;   // 立刻刷下一条
       }
       vidSkipStreak=0;
@@ -4112,7 +4174,8 @@ async function vidStep(mode){
       const item=vidAddItem(v,text,'生成中…','');
       if(vid.pub.checked){
         vidLog('正在发布评论…');
-        const p=await vidApi('/api/comment',{text:text,expectKey:v.key||''});
+        const p=await vidApi('/api/comment',{text:text,expectKey:v.key||''},undefined,controller.signal);
+        if(cancelled()) return;
         if(p.ok){
           vidItemStatus(item,'已发布','ok');
           vidLog('已发布：'+text);
@@ -4135,9 +4198,14 @@ async function vidStep(mode){
     }
     vidLog('连续划走了太多条，先停一下看看',true);
   }catch(e){
-    vidLog('出错：'+(e.message||e),true);
+    if(!cancelled()&&e.name!=='AbortError') vidLog('出错：'+(e.message||e),true);
   }finally{
-    vidBusy=false; vid.next.disabled=false;
+    clearTimeout(watchdog);
+    if(vidAbort===controller){
+      vidAbort=null;
+      vidBusy=false;
+      vid.next.disabled=false;
+    }
   }
 }
 function vidScheduleNext(){
@@ -4164,6 +4232,8 @@ function vidStartAuto(){
 function vidStopAuto(){
   vidRunning=false;
   if(vidTimer){ clearTimeout(vidTimer); vidTimer=null; }
+  if(vidAbort){ vidAbort.abort(); vidAbort=null; }
+  vidBusy=false; vid.next.disabled=false;
   vid.start.disabled=false; vid.stop.disabled=true;
   vidLog('自动刷视频已停止');
 }
