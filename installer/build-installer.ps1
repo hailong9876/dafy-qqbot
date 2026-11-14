@@ -87,6 +87,15 @@ if (-not ($KeepStage -and (Test-Path $payload))) {
     }
   }
 
+  # 视频/文件服务（18905）：抖音摸鱼 + 大屏的文件浏览/删除
+  # 只带脚本与依赖，排除本机登录 profile（.douyin-profile）、运行状态与日志
+  $vsSrc = Join-Path $proj 'video-server'
+  if (Test-Path $vsSrc) {
+    $vsDst = Join-Path $payload 'video-server'
+    robocopy $vsSrc $vsDst /E /XD .douyin-profile .git /XF state.json *.log /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "打包 video-server 失败，robocopy 退出码 $LASTEXITCODE" }
+  }
+
   # 使用说明 cmd（完整流程 / 发布介绍），从 安装包 目录取最新一份
   $pkgDir = Join-Path $proj '安装包'
   if (Test-Path $pkgDir) {
