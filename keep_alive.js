@@ -60,15 +60,16 @@ function probe(port, timeout = 1000, healthPath = '/health') {
 }
 
 function spawnDetached(cmd, args, opts = {}) {
-  // 确保 PATH 不被覆盖（cmd 里可能没有）
+  // 确保 PATH 不被覆盖
   const env = Object.assign({}, process.env, {
     PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
     CUDA_VISIBLE_DEVICES: '', HF_ENDPOINT: 'https://hf-mirror.com',
   }, opts.env || {});
-  // shell=true 时含空格的路径（如 C:\Program Files\...）必须加引号
-  const cmdStr = /\s/.test(cmd) && !/^".*"$/.test(cmd) ? '"' + cmd + '"' : cmd;
-  const p = spawn(cmdStr, args, Object.assign({
-    detached: true, windowsHide: false, shell: true,
+  // 关键：不使用 shell，args 用数组传递 → Windows 自动正确处理含空格路径；
+  // windowsHide:true 走 CREATE_NO_WINDOW，所有后台服务都不弹窗。
+  // （之前 shell:true 会让 windowsHide 失效，cmd 把黑窗漏出来）
+  const p = spawn(cmd, args, Object.assign({
+    detached: true, windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   }, opts, { env }));
   p.stdout.on('data', c => process.stdout.write(`[${opts.name||cmd}] ${c.toString().trim()}\n`));
@@ -90,7 +91,7 @@ async function main() {
   // 2. 启 bridge（如果没在跑）
   if (!brOk) {
     console.log('启动 bridge...');
-    spawnDetached(NODE, [BRIDGE], { cwd: QB, name: 'bridge', windowsHide: false });
+    spawnDetached(NODE, [BRIDGE], { cwd: QB, name: 'bridge' });
   }
 
   // 3. 等 bridge 起来
@@ -103,7 +104,7 @@ async function main() {
   if (!ttsOk) {
     console.log('启动 tts_server（首次 preload 约 55s）...');
     spawnDetached(TTS_PY, [TTS_SCRIPT, '--port', String(TTS_PORT), '--preload'], {
-      cwd: TTS_DIR, name: 'tts', windowsHide: false,
+      cwd: TTS_DIR, name: 'tts',
     });
   }
 
@@ -112,7 +113,7 @@ async function main() {
   if (!edgeOk) {
     console.log('启动 edge_tts_server（秒级启动）...');
     spawnDetached(TTS_PY, [path.join(TTS_DIR, 'edge_tts_server.py'), '--port', String(EDGE_TTS_PORT)], {
-      cwd: TTS_DIR, name: 'edge-tts', windowsHide: false,
+      cwd: TTS_DIR, name: 'edge-tts',
     });
   }
 
